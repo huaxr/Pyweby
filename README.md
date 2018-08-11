@@ -56,8 +56,7 @@ server.server_forever()
 "defalut get value"
 >curl -XPOST "http://127.0.0.1:5000/hello" -d "key=test"
 "test"
->curl -XPOST "http://127.0.0.1:5000/hello" -d "nokey=
-test"
+>curl -XPOST "http://127.0.0.1:5000/hello" -d "nokey=test"
 "defalut post value"
 >
 ```
