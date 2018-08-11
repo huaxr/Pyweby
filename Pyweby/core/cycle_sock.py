@@ -10,7 +10,6 @@ from sock import gen_serversock
 from config import Configs
 from handle.request import WrapRequest,HttpRequest
 from handle.response import WrapResponse
-from core.router import Router
 from handle.exc import NoRouterHandlers,FormatterError
 
 class MainCycle(object):
@@ -28,24 +27,36 @@ class MainCycle(object):
             else:
                 raise FormatterError(uri=uri,obj=obj)
 
+
+
 class PollCycle(MainCycle):
+
     msg_queue = threading.local()
     msg_queue.pair = {}
 
-    def __init__(self,impl,timeout=3600,**kwargs):
+    def __init__(self,*args,**kwargs):
         # super(PollCycle,self).__init__()
-        self._impl = impl
-        self.timeout = timeout
+        self._impl = kwargs.get('__impl',None)
+        assert self._impl is not None
+        self.timeout = kwargs.get('timeout',3600)
         self._thread_ident = thread.get_ident()
-        self.server = gen_serversock()
-        self.handlers = kwargs.get('handlers',[])
-        PollCycle.check(self.handlers,None)
-        self.add_handler(self.server,Configs.M)
+
+        self.handlers = self.trigger_handlers(kwargs)
+
         super(PollCycle,self).__init__()
+
+    def listen(self,port):
+        self.server = gen_serversock(port)
+
+        #AttributeError: 'SelectCycle' object has no attribute 'handlers'
+        PollCycle.check(self.handlers, None)
+        self.add_handler(self.server, Configs.M)
 
     @classmethod
     def check(cls,handlers,conn):
-        assert len(handlers) > 0, NoRouterHandlers
+
+        if len(handlers) <= 0:
+            raise NoRouterHandlers
         cls.checking_handlers(handlers,conn)
 
     @classmethod
@@ -94,7 +105,6 @@ class PollCycle(MainCycle):
                         try:
                             data = sock.recv(60000)
                         except socket.error as e:
-                            print e
                             self.close(sock)
                             continue
 
@@ -143,3 +153,6 @@ class PollCycle(MainCycle):
         sock.close()
         del self.msg_queue.pair[sock]
         # print self._impl._debug()
+
+    def trigger_handlers(self,kw):
+        raise NotImplementedError

@@ -4,7 +4,7 @@ import time
 from urllib import unquote
 
 from exc import MethodNotAllowedException
-from core.router import DistributeRouter
+
 
 class method_check(object):
     METHODS = ['GET', 'POST', 'OPTIONS', 'PUT', 'DELETE']
@@ -33,7 +33,7 @@ class HttpRequest(object):
 
     def __repr__(self):
         if self:
-            return "<'{name}' object at 0x{hex}>".format(name='HttpRequest',hex=id(self))
+            return "{name}".format(name=self.__class__)
 
     def find_router(self):
         '''
@@ -50,7 +50,7 @@ class HttpRequest(object):
         raise NotImplementedError
 
     @property
-    def get_arguments(self):
+    def get_argument(self):
         '''
         phrase arguments safely
         :return:
@@ -80,6 +80,7 @@ class PAGE_NOT_FOUNT(HttpRequest):
         return {'404': 'page not found'}, 404
 
 class DangerousRequest(HttpRequest):
+
     def safe_dict(self,tmp):
         '''
         convert tmp to dict safely and avoiding raise ValueError
@@ -94,13 +95,16 @@ class DangerousRequest(HttpRequest):
 
 
 class WrapRequest(DangerousRequest):
+
+    __slots__ = ['get_arguments']
+
     METHODS = method_check.METHODS
     DEFAULT_INDEX = PAGE_NOT_FOUNT
 
     def __init__(self,headers,callback,handlers=None,conn=None):
         self.headers = headers
         self.handlers = callback(handlers)
-        self.conn_obj = DistributeRouter.set_sock(conn)
+        # self.conn_obj = DistributeRouter.set_sock(conn)
 
         self.pair = {}
         self.regexp = re.compile(r'\r?\n')
@@ -108,7 +112,7 @@ class WrapRequest(DangerousRequest):
         self._has_wrapper = False
         self.router = None
 
-        super(DangerousRequest,self).__init__(headers=self.headers,handlers=self.handlers,conn=self.conn_obj)
+        super(DangerousRequest,self).__init__(headers=self.headers,handlers=self.handlers)
 
 
     @staticmethod
@@ -164,6 +168,7 @@ class WrapRequest(DangerousRequest):
 
     @method_check
     def get_first_line(self):
+
         start_line = self.wrap_headers()['start_line']
         method , uri, version = start_line.split(' ')
         try:
@@ -176,6 +181,15 @@ class WrapRequest(DangerousRequest):
         self.wrap_headers()
         return self.pair.get(attr,None)
 
+
+    def get_arguments(self,key,default):
+        '''
+        wrapper of property get_argument dict.
+        get value from it
+        :return: key points value
+        '''
+        arguments = self.get_argument
+        return arguments.get(key,default)
 
 
 

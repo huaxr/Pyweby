@@ -1,28 +1,63 @@
+import select
+from core.select_win import SelectCycle
+
 class Router(object):
+
     def __new__(cls, *args, **kwargs):
-        impl = cls.configured_class()
-        instance = super(Router, cls).__new__(impl)
-        return instance
+
+        impl = cls.configure()
+        '''
+        To figure out that the impl is callable object
+        '''
+        try:
+            instance = super(Router, cls).__new__(impl.__call__())
+        except TypeError as e:
+            raise e
+
+        cls.ok_value(instance)
+
+        return instance.__class__
+
+    def __init__(self,*args,**kwargs):
+
+        super(self.__class__,self).__init__()
 
     @classmethod
-    def configured_class(cls):
-        base = cls.configurable_base()
-        base.__impl_class = cls.configurable_default()
-        return base.__impl_class
+    def ok_value(cls,ins):
+        raise NotImplementedError
+
 
     @classmethod
-    def configurable_base(cls):
+    def configure(cls):
+        '''
+        for safe reason, do not call impl immediate
+        :return: bound method _choose of class `router.Looper`
+        '''
+        base = cls._choose()
+        return base
+
+    @classmethod
+    def _choosen(cls):
         raise NotImplementedError
 
     @classmethod
-    def configurable_default(cls):
+    def _choose(cls):
         raise NotImplementedError
 
     def get_sock(self):
         raise NotImplementedError
 
+    @staticmethod
+    def checing_return(*args,**kwargs):
 
-class DistributeRouter(object):
+        def wrapper(fn):
+
+            return fn(*args,**kwargs)
+
+        return wrapper
+
+
+class DistributeRouter(Router):
     connection = None
 
     @classmethod
@@ -35,12 +70,15 @@ class DistributeRouter(object):
         return cls
 
     @classmethod
-    def configurable_base(cls):
-        return DistributeRouter
+    def _choosen(cls):
+        if hasattr(select, 'epoll'):
+            raise NotImplementedError
+        if hasattr(select,'select'):
+            return SelectCycle
 
     @classmethod
-    def configurable_default(cls):
-        return cls.connection
+    def _choose(cls):
+        return cls._choosen
 
     def get(self):
         pass
@@ -59,3 +97,34 @@ class DistributeRouter(object):
 
     def find_router(self):
         raise NotImplementedError
+
+    @classmethod
+    def ok_value(cls,instance):
+        assert isinstance(instance, (SelectCycle,)), 'Error base instance to handler'
+
+
+class Looper(DistributeRouter):
+
+    def __init__(self,*args,**kwargs):
+
+        super(Looper,self).__init__(*args,**kwargs)
+
+    def __call__(self, *args, **kwargs):
+        return self.listen(kwargs.get('port',8000))
+
+    def listen(self,port):
+        '''
+        listen on port sock is main server Select IO Loop
+        :param port: int value
+        :return:
+        '''
+        raise NotImplementedError
+
+    def server_forever(self):
+        '''
+        starting the server to `sniffer` all http request
+        and wrapper to request and response object
+        :return:
+        '''
+        raise NotImplementedError
+

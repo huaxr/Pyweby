@@ -50,7 +50,36 @@ class _select(object):
     def close(self):
         raise NotImplementedError
 
-class SelectCycle(PollCycle):
-    def __init__(self, **kwargs):
-        super(SelectCycle, self).__init__(impl=_select(), **kwargs)
+class SelectCycle(PollCycle,Configs.BarrelCheck):
+
+    def __init__(self,*args, **kwargs):
+        '''
+        this is the main loop started place
+        '''
+        self.application = None
+
+        flag, obj = self.if_define_barrel(args,kwargs)
+        if flag and obj:
+            self.wrapper_barrel(obj,kwargs)
+
+        kwargs.update({'__impl':_select()})
+
+        # self has application attribute, which is the definition of the Application
+        super(SelectCycle, self).__init__(*args, **kwargs)
+
+
+    def trigger_handlers(self,kw):
+        '''
+        this method for layout the handlers user define in the main.py.
+        if user pass an object inherit Configs.Application, that means
+        self has been set application parameter, which is the Application
+        user defines, has many useful attribute for later calling.
+        :param kw:  passed form the super class, has been wrapped
+        :return: the handlers property. defined in main.py which is subclass
+                of HttpRequest and added into the handlers key-value pair
+        '''
+        app = self.application()
+        if app:
+            return app.handlers
+        return kw.get('handlers',[])
 

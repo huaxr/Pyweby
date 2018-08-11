@@ -41,6 +41,10 @@ class WrapResponse(HttpResponse):
         reference by this method
         :return:
         '''
+        def callback(*args,**kwargs):
+
+            return
+
         if method.upper() == 'GET':
             router = self.find_handler()()
             result =  getattr(router,'get')(self.wrapper)
@@ -57,7 +61,6 @@ class WrapResponse(HttpResponse):
         :return:
         '''
         result = self.switch_method(method=self.method)
-        # print result
         if result:
             if isinstance(result,(str,unicode,bytes)):
                 body, status = result, 200
