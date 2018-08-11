@@ -49,6 +49,7 @@ server.server_forever()
 
 ### result
 
+```
 >curl "http://127.0.0.1:5000/hello?key=test"
 "test"
 >curl "http://127.0.0.1:5000/hello?nokey=test"
@@ -59,4 +60,7 @@ server.server_forever()
 test"
 "defalut post value"
 >
+```
 
+
+later useage is Unfinished.
