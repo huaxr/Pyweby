@@ -20,11 +20,11 @@ from core.config import Configs
 class testRouter2(HttpRequest):
 
     def get(self,request):
-        arguments = request.get_arguments('key','defalut value')
+        arguments = request.get_arguments('key','defalut get value')
         return arguments,200
 
     def post(self,request):
-        arguments = request.get_arguments
+        arguments = request.get_arguments('key','defalut post value')
         return arguments,200
 
 
@@ -40,9 +40,23 @@ class Barrel(Configs.Application):
         print 'global test'
 
 
-loop = Looper() 
+loop = Looper()
 server = loop(Barrel)
 server.listen(5000)
 server.server_forever()
 
 ```
+
+### result
+
+>curl "http://127.0.0.1:5000/hello?key=test"
+"test"
+>curl "http://127.0.0.1:5000/hello?nokey=test"
+"defalut get value"
+>curl -XPOST "http://127.0.0.1:5000/hello" -d "key=test"
+"test"
+>curl -XPOST "http://127.0.0.1:5000/hello" -d "nokey=
+test"
+"defalut post value"
+>
+
