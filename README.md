@@ -9,7 +9,7 @@ an awesome non-blocking web server achieved by python
 1. it's increaseing property and useage 
 
 
-### useage
+### MAIN CODE
 
 **main.py**
 ```
@@ -17,14 +17,27 @@ from handle.request import HttpRequest
 from core.router import  Looper
 from core.config import Configs
 
+from core.concurrent import Executor,asyncpool,async_wait
+import time
+
 class testRouter2(HttpRequest):
+    executor = Executor(5)
 
-    def get(self,request):
-        arguments = request.get_arguments('key','defalut get value')
-        return arguments,200
+    @asyncpool(executor=executor)
+    def sleeper(self,counts):
+        time.sleep(counts)
+        return "sleeper call over, %d" %(counts)
 
-    def post(self,request):
-        arguments = request.get_arguments('key','defalut post value')
+    @async_wait
+    def get(self):
+        # print(self.request)
+        # print(self.app)
+        result = yield self.sleeper(5)   #return futures
+        # arguments = self.request.get_arguments('key','defalut get value')
+        return result,200
+
+    def post(self):
+        arguments = self.request.get_arguments('key','defalut post value')
         return arguments,200
 
 
@@ -37,28 +50,20 @@ class Barrel(Configs.Application):
         super(Barrel,self).__init__(self.handlers,self.settings)
 
     def global_test(self):
-        print 'global test'
+        print('global test')
 
-
-loop = Looper()
-server = loop(Barrel)
-server.listen(5000)
-server.server_forever()
-
+if __name__ == '__main__':
+    loop = Looper()
+    server = loop(Barrel)
+    server.listen(5000)
+server.server_forever(debug=False)
 ```
 
-### result
+### USAGE
 
 ```
 >curl "http://127.0.0.1:5000/hello?key=test"
-"test"
->curl "http://127.0.0.1:5000/hello?nokey=test"
-"defalut get value"
->curl -XPOST "http://127.0.0.1:5000/hello" -d "key=test"
-"test"
->curl -XPOST "http://127.0.0.1:5000/hello" -d "nokey=test"
-"defalut post value"
->
+
 ```
 
 
