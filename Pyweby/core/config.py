@@ -24,10 +24,13 @@ class Configs(object):
 
         def ok_value(self,arg):
             if '__impl' in dir(arg):
-                raise SyntaxError, 'keyword argument repeated of this application\'s self'
+                raise SyntaxError('keyword argument repeated of this application\'s self')
 
 
     class BarrelCheck(object):
+
+        def __init__(self):
+            self.application = None
 
         def if_define_barrel(self,args,kwargs):
             for i in args:
@@ -41,5 +44,8 @@ class Configs(object):
             return False,None
 
         def wrapper_barrel(self,obj, kwargs):
+            '''
+            add application method, wrapper it to an instance attribute
+            '''
             kwargs.update({'application':obj})
             self.application = obj

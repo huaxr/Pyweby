@@ -1,21 +1,28 @@
 #coding:utf-8
 import re
 import time
-from urllib import unquote
 
-from exc import MethodNotAllowedException
+try:
+    from urllib.parse import unquote
+except ImportError:
+    from urllib import unquote
+
+from .exc import MethodNotAllowedException
 
 
 class method_check(object):
     METHODS = ['GET', 'POST', 'OPTIONS', 'PUT', 'DELETE']
 
     def __init__(self,fn):
+
         self.func = fn
 
     def __get__(self,instance,cls=None):
+
         if instance is None:
             return self
         res = self.func(instance)
+
         if len(res) > 2 and res[0] in self.METHODS:
             return res
         else:
@@ -31,6 +38,11 @@ class HttpRequest(object):
         self.conn_obj = conn
         self._starttime = time.time()
 
+        # added attribute
+        self.request = None
+        self.send = None
+        self.app = None
+
     def __repr__(self):
         if self:
             return "{name}".format(name=self.__class__)
@@ -40,9 +52,15 @@ class HttpRequest(object):
         get_first_line has been returned by decorator, so it's changed to be a property value
         :return:
         '''
-        method, path, query, version = self.get_first_line
+        try:
+            method, path, query, version = self.get_first_line
 
-        router = self.handlers.get(path,WrapRequest.DEFAULT_INDEX)
+            router = self.handlers.get(path,WrapRequest.DEFAULT_INDEX)
+
+        except MethodNotAllowedException:
+
+            router = WrapRequest.METHOD_NOT_ALLOWED
+
         return router
 
 
@@ -73,11 +91,20 @@ class HttpRequest(object):
 
 
 class PAGE_NOT_FOUNT(HttpRequest):
-    def get(self,request):
+    def get(self):
         return {'404':'page not found'},404
 
-    def post(self,request):
+    def post(self):
         return {'404': 'page not found'}, 404
+
+
+class METHOD_NOT_ALLOWED(HttpRequest):
+    def get(self):
+        return {'400':'method not allowed'},400
+
+    def post(self):
+        return {'400': 'method not allowed'}, 400
+
 
 class DangerousRequest(HttpRequest):
 
@@ -96,16 +123,14 @@ class DangerousRequest(HttpRequest):
 
 class WrapRequest(DangerousRequest):
 
-    __slots__ = ['get_arguments']
-
     METHODS = method_check.METHODS
     DEFAULT_INDEX = PAGE_NOT_FOUNT
+    METHOD_NOT_ALLOWED = METHOD_NOT_ALLOWED
 
-    def __init__(self,headers,callback,handlers=None,conn=None):
+    def __init__(self,headers,callback,handlers=None,application=None):
         self.headers = headers
         self.handlers = callback(handlers)
-        # self.conn_obj = DistributeRouter.set_sock(conn)
-
+        self.application = application
         self.pair = {}
         self.regexp = re.compile(r'\r?\n')
         self.regdata = u'\r\n\r\n'
@@ -130,7 +155,20 @@ class WrapRequest(DangerousRequest):
         :return:
         '''
         if not self._has_wrapper:
-            for line in self.regexp.split(self.headers):
+            '''
+            import chardet
+            encode_type = chardet.detect(html)  
+            html = html.decode(encode_type['encoding'])
+            
+            str2bytes: encode().
+            bytes2str: decode().
+            '''
+            try:
+                headers = self.headers.decode()
+            except Exception:
+                headers = self.headers
+
+            for line in self.regexp.split(headers):
                 if line:
                     if ':' not in line:
                         #bug report, the uri can not contains ':'
@@ -161,13 +199,13 @@ class WrapRequest(DangerousRequest):
                 if data:
                     return data
             else:
-                raise Exception,'not implement'
+                raise Exception('not implement')
         else:
             raise MethodNotAllowedException(method=method)
 
 
     @method_check
-    def get_first_line(self):
+    def get_first_line(self,callback=None):
 
         start_line = self.wrap_headers()['start_line']
         method , uri, version = start_line.split(' ')
@@ -189,7 +227,11 @@ class WrapRequest(DangerousRequest):
         :return: key points value
         '''
         arguments = self.get_argument
-        return arguments.get(key,default)
+        '''
+        avoiding NoneType arguments
+        '''
+        if arguments:
+            return arguments.get(key,default)
 
 
 

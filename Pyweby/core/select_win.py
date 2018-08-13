@@ -1,6 +1,6 @@
 import select
-from cycle_sock import PollCycle
-from config import Configs
+from .cycle_sock import PollCycle
+from .config import Configs
 
 class _select(object):
     def __init__(self):
@@ -10,7 +10,7 @@ class _select(object):
         # self.fd_sets = (self.read_fds, self.write_fds, self.error_fds)
 
     def _debug(self):
-        return [len(x) for x in self.read_fds,self.write_fds,self.error_fds]
+        return [len(x) for x in (self.read_fds,self.write_fds,self.error_fds)]
 
     def sock_handlers(self,timeout):
         readable, writeable, exceptions = select.select(self.read_fds, self.write_fds, self.error_fds, timeout)

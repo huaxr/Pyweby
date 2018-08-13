@@ -16,3 +16,8 @@ class FormatterError(Exception):
 class StatusError(Exception):
     def __init__(self,msg=None,status=None):
         super(StatusError,self).__init__(msg or 'status {} is not allowed, must be int and 200=<x<=500'.format(status))
+
+
+class NoPackageFound(Exception):
+    def __init__(self, msg=None, pkname=None):
+        super(NoPackageFound, self).__init__(msg or 'package {} is not found, try `pip install {}` '.format(pkname,pkname))

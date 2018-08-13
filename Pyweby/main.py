@@ -1,50 +1,46 @@
-
 from handle.request import HttpRequest
 from core.router import  Looper
 from core.config import Configs
 
-class testRouter(HttpRequest):
-
-    def get(self,request):
-        #print request  #<class 'handle.request.WrapRequest'>
-        print dir(request)
-        print dir(self)
-        arguments = request.get_arguments
-        return  1222223,200
-    def post(self,request):
-        arguments = request.get_arguments
-        return arguments, 200
+from core.concurrent import Executor,asyncpool,async_wait
+import time
 
 class testRouter2(HttpRequest):
-    # __slots__ = ['get','post']
+    executor = Executor(5)
 
-    def get(self,request):
-        arguments = request.get_arguments('key','defalut value')
-        return arguments,200
+    @asyncpool(executor=executor)
+    def sleeper(self,counts):
+        time.sleep(counts)
+        return "sleeper call over, %d" %(counts)
 
-    def post(self,request):
-        arguments = request.get_arguments
+    @async_wait
+    def get(self):
+        # print(self.request)
+        # print(self.app)
+        result = yield self.sleeper(5)   #return futures
+        # arguments = self.request.get_arguments('key','defalut get value')
+        return result,200
+
+    def post(self):
+        arguments = self.request.get_arguments('key','defalut post value')
         return arguments,200
 
 
 class Barrel(Configs.Application):
     cls_test = 'cls test'
     def __init__(self):
-        self.handlers = [(r'/',testRouter),
-                    (r'/hello',testRouter2),]
+        self.handlers = [(r'/hello',testRouter2),]
         self.settings = {}
         self.test = "test message"
         super(Barrel,self).__init__(self.handlers,self.settings)
 
     def global_test(self):
-        print 'global test'
+        print('global test')
 
-
-loop = Looper() #<class 'core.select_win.SelectCycle'>
-
-server = loop(Barrel)
-
-server.listen(5000)
-server.server_forever()
+if __name__ == '__main__':
+    loop = Looper()
+    server = loop(Barrel)
+    server.listen(5000)
+    server.server_forever(debug=False)
 
 
