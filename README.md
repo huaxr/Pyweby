@@ -1,5 +1,5 @@
 # Pyweby
-An awesome non-blocking web server achieved by python, create for surpassing Tornado and Django!
+An awesome non-blocking web server achieved by python3, create for surpassing Tornado and Django!
 
 
 ### Futures
@@ -8,8 +8,8 @@ An awesome non-blocking web server achieved by python, create for surpassing Tor
 1. support concurrent flow
 1. it's increaseing property and useage
 1. concurrent Future.result() is non-blocking BY Observer Looper
-1. faster and restful
-1. enhancing capacity is still a mystery, pay close attention to it [pay close attention to]()
+1. Compatible with python3 and python2 
+1. enhancing capacity is still a mystery, pay close attention to it [https://github.com/huaxr/Pyweby/]()
 
 
 ### MAIN CODE
