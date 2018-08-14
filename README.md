@@ -1,5 +1,4 @@
 # Pyweby
-![mark](http://pacfhd1z8.bkt.clouddn.com/python/180813/5a7bjdJLkK.png?imageslim)
 An awesome non-blocking web server achieved by python3, create for surpassing Tornado and Django!
 
 
@@ -86,6 +85,15 @@ but infusive thing is that both are returned at the same time.
 hope for enjoy!
 
 ```
+
+### 并发测试
+并发数:100
+![mark](http://pacfhd1z8.bkt.clouddn.com/python/180814/cE76Cj6BiE.png?imageslim)
+
+并发数:1000
+![mark](http://pacfhd1z8.bkt.clouddn.com/python/180814/6B52FggL2D.png?imageslim)
+并发数:10000
+![mark](http://pacfhd1z8.bkt.clouddn.com/python/180814/gcGe28dIm5.png?imageslim)
 
 
 later useage is Unfinished.
