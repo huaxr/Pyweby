@@ -1,5 +1,5 @@
 import select
-from core.select_win import SelectCycle
+from core.select_select import SelectCycle
 
 class Router(object):
 

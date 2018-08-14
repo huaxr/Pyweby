@@ -195,7 +195,13 @@ class WrapRequest(DangerousRequest):
                     return query
 
             elif method == 'POST':
-                data = self.headers.split(self.regdata,1)[1]
+                # handing TypeError: a bytes-like object is required, not 'str' for python3
+                # for Compatible with python2, try and catch
+                try:
+                    data = self.headers.decode().split(self.regdata,1)[1]
+                except Exception:
+                    data = self.headers.split(self.regdata,1)[1]
+
                 if data:
                     return data
             else:

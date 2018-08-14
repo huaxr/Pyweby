@@ -31,6 +31,7 @@ class Configs(object):
 
         def __init__(self):
             self.application = None
+            self.settings = None
 
         def if_define_barrel(self,args,kwargs):
             for i in args:
@@ -46,6 +47,8 @@ class Configs(object):
         def wrapper_barrel(self,obj, kwargs):
             '''
             add application method, wrapper it to an instance attribute
+            bind kwargs of SelectCycle.
             '''
-            kwargs.update({'application':obj})
-            self.application = obj
+            kwargs.update({'application':obj()})
+            self.application = obj()
+            # self.settings = self.application.settings

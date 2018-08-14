@@ -1,12 +1,11 @@
 import types
-
 import json
-
 import time
 
 from handle.request import HttpRequest
 from handle.exc import StatusError,MethodNotAllowedException
 from concurrent.futures import _base, wait,ALL_COMPLETED, FIRST_COMPLETED, FIRST_EXCEPTION
+from util.Observer import EventFuture,Eventer
 
 
 class HttpResponse(object):
@@ -55,10 +54,14 @@ class DangerResponse(HttpResponse):
 
 class WrapResponse(DangerResponse):
 
-    def __init__(self,wrapper_request):
+    def __init__(self,wrapper_request,event_manager=None,sock=None,PollCycle=None):
         assert issubclass(wrapper_request.__class__,HttpRequest)
 
         self.wrapper = wrapper_request
+        self.event_manager = event_manager
+        self.sock = sock
+        self.PollCycle = PollCycle
+
         try:
             self.tuples = self.wrapper.get_first_line
         except MethodNotAllowedException:
@@ -72,8 +75,7 @@ class WrapResponse(DangerResponse):
                          400:'METHOD NOT ALLOWED',
                          404:'NOT FOUND',
                          500:'SERVER ERROR'}
-
-        self.body = None
+        # self.eventManager =
 
         super(WrapResponse,self).__init__()
 
@@ -107,10 +109,10 @@ class WrapResponse(DangerResponse):
 
                 #router is response , we add the request attribute to the self instance
 
-                # 1. the WrapperRequest object
+                # 1.the WrapperRequest object
                 router.request = self.wrapper
-                # 2. the global application instance
-                router.app = self.wrapper.application()
+                # 2. the global application instance binding here,this is an instance already
+                router.app = self.wrapper.application
 
                 nexter = getattr(router,'get')
 
@@ -120,7 +122,7 @@ class WrapResponse(DangerResponse):
                 '''
                 router = self.find_handler()()
                 router.request = self.wrapper
-                router.app = self.wrapper.application()
+                router.app = self.wrapper.application
                 nexter = getattr(router, 'post')
 
             else:
@@ -141,9 +143,6 @@ class WrapResponse(DangerResponse):
         # if self.method is not in the allowed list-methods, that self.method
         # is set `pyweby` , which means an mistakenly usage of http request method
         next(time_consuming_op)
-
-        # result = self.switch_method(method=self.method)
-        # assert result is not None
 
         while True:
             result = time_consuming_op.send(None)
@@ -179,8 +178,7 @@ class WrapResponse(DangerResponse):
 
         return header
 
-    def gen_body(self,  prefix=''):
-
+    def gen_body(self,  prefix='', if_need_result = False):
         '''
         generator the body contains headers
         :param prefix: this prefix to tail whether the response package is integrity
@@ -190,8 +188,12 @@ class WrapResponse(DangerResponse):
             body, status = instancemethod()
         except TypeError:
             body, status = self.discern_result(time_consuming_op=self.switch_method(self.method))
+        except ValueError:
+            #too many values to unpack (expected 2)
+            return None
 
         '''
+        8.10
         since from  switch_method getting called, the returning result can be
         an normal bytes? or string? type for return.
         but if you set concurrent generator a Future object 
@@ -199,28 +201,40 @@ class WrapResponse(DangerResponse):
         Whether `body` is Future.tp_repr or not.
         ok_body is the method what you need?
         no, still call result(), blocking still, how can i solve it?
+        
+        8.14
+        solution: using Observer-Model to delegate the Future and current socket
+        to the EventMaster
         '''
 
-        self.ok_body(body)
-        # if isinstance(body, _base.Future):
-        #     body.add_done_callback(self.callback_result)
-        msg = self.msg_pair.get(status,200)
-        if prefix != u'\r\n'*2:
-            return json.dumps(body)
+        if isinstance(body,_base.Future):
+            # WE DON'T NEED if_need_result FLAG ANYMORE,CAUSE WE CAN JUDGE THE BRANCH TO GO BY
+            # distinguish whether body is Future or (str,bytes...)
+            self.ok_body(body)
         else:
-            return self.gen_headers(self.version, status, msg) + prefix + str(body)
+            msg = self.msg_pair.get(status,200)
+            if prefix != u'\r\n'*2:
+                return json.dumps(body)
+            else:
+                return self.gen_headers(self.version, status, msg) + prefix + str(body)
 
-    def add_future_result(self,body):
-        self.body = body
-        print(self.body)
 
     def callback_result(self,finished_future):
+        # gen_body finishing will callback the method
         assert isinstance(finished_future, _base.Future)
         assert  finished_future.done() == True
-        body = finished_future.result()
-        self.add_future_result(body)
+        self.trigger_event(finished_future)
 
 
+    def trigger_event(self,future):
+        '''
+        the function simulate a event_source like object, just for padding
+        the EventManager Queue to handling delay Future result.
+        '''
+        if issubclass(EventFuture, Eventer):
+            event = EventFuture(future,self.sock,_PollCycle=self.PollCycle)
+            event.dict["type"] = u'futures'
+            self.event_manager.addFuture(event)
 
-
-
+        else:
+            raise OSError("EventFuture must be new_class!")
