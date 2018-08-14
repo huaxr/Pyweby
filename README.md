@@ -1,15 +1,19 @@
 # Pyweby
-an awesome non-blocking web server achieved by python
+An awesome non-blocking web server achieved by python, create for surpassing Tornado and Django!
 
 
 ### Futures
 1. it's convenient to using the project to start an web application
 1. it's reliable and easy deploy.
 1. support concurrent flow
-1. it's increaseing property and useage 
+1. it's increaseing property and useage
+1. concurrent Future.result() is non-blocking BY Observer Looper
+1. faster and restful
+1. enhancing capacity is still a mystery, pay close attention to it [pay close attention to]()
 
 
 ### MAIN CODE
+##### easy example code to show it power! 
 
 **main.py**
 ```
@@ -17,7 +21,7 @@ from handle.request import HttpRequest
 from core.router import  Looper
 from core.config import Configs
 
-from core.concurrent import Executor,asyncpool,async_wait
+from core.concurrent import Executor,asyncpool
 import time
 
 class testRouter2(HttpRequest):
@@ -28,24 +32,30 @@ class testRouter2(HttpRequest):
         time.sleep(counts)
         return "sleeper call over, %d" %(counts)
 
-    @async_wait
     def get(self):
         # print(self.request)
         # print(self.app)
-        result = yield self.sleeper(5)   #return futures
+        arguments = self.request.get_arguments('key', 'defalut get value')
+        value = int(arguments)
+        result = self.sleeper(value)   #return futures
         # arguments = self.request.get_arguments('key','defalut get value')
         return result,200
 
     def post(self):
-        arguments = self.request.get_arguments('key','defalut post value')
-        return arguments,200
+        arguments = self.request.get_arguments('key', 'defalut get value')
+        value = int(arguments)
+        result = self.sleeper(value)  # return futures
+        # arguments = self.request.get_arguments('key','defalut get value')
+        return result, 200
 
 
 class Barrel(Configs.Application):
     cls_test = 'cls test'
     def __init__(self):
         self.handlers = [(r'/hello',testRouter2),]
-        self.settings = {}
+        self.settings = {
+            "enable_manager":True,   # if you want get the Future.result and without blocking the server. set it True
+        }
         self.test = "test message"
         super(Barrel,self).__init__(self.handlers,self.settings)
 
@@ -55,14 +65,24 @@ class Barrel(Configs.Application):
 if __name__ == '__main__':
     loop = Looper()
     server = loop(Barrel)
-    server.listen(5000)
-server.server_forever(debug=False)
+    server.listen(8000)
+    server.server_forever(debug=False)
+  
 ```
 
 ### USAGE
 
 ```
->curl "http://127.0.0.1:5000/hello?key=test"
+>> curl http://127.0.0.1:8000/hello?key=5
+
+at the same time , starting another console and input:
+
+>> curl -XPOST http://127.0.0.1:5000/hello -d "key=5"
+
+which means start 2 request , every request will block key=5 seconds,
+but infusive thing is that both are returned at the same time.
+
+hope for enjoy!
 
 ```
 
