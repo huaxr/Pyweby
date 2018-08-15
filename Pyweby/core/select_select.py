@@ -74,12 +74,12 @@ class SelectCycle(PollCycle,Configs.BarrelCheck):
         flag, obj = self.if_define_barrel(args,kwargs)
         if flag and obj:
             self.wrapper_barrel(obj,kwargs)
+            # after wrapper_barrel called, self is bind application instance
+            # which is the class user defined inherit from Configs.Application
+            kwargs.update(self.application.settings)
 
         kwargs.update({'__impl':_select()})
 
-        # after wrapper_barrel called, self is bind application instance
-        # which is the class user defined inherit from Configs.Application
-        kwargs.update(self.application.settings)
         # self has application attribute, which is the definition of the Application
         # now super calling .
         super(SelectCycle, self).__init__(*args, **kwargs)

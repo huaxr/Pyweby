@@ -21,3 +21,8 @@ class StatusError(Exception):
 class NoPackageFound(Exception):
     def __init__(self, msg=None, pkname=None):
         super(NoPackageFound, self).__init__(msg or 'package {} is not found, try `pip install {}` '.format(pkname,pkname))
+
+
+class EventManagerError(Exception):
+    def __init__(self, msg=None):
+        super(EventManagerError, self).__init__(msg or 'For Future result. you must set enable_manager=True!')

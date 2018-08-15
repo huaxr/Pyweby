@@ -1,4 +1,8 @@
 #coding:utf-8
+import types
+
+import itertools
+
 
 class Configs(object):
     R = 0x01
@@ -34,13 +38,9 @@ class Configs(object):
             self.settings = None
 
         def if_define_barrel(self,args,kwargs):
-            for i in args:
-                if issubclass(i,Configs.Application):
+            for i in itertools.chain(args, kwargs.keys()):
+                if isinstance(i, self.__class__.__class__) and issubclass(i,Configs.Application):
                     return True,i
-
-            for m in kwargs.keys():
-                if issubclass(m,Configs.Application):
-                    return True,m
 
             return False,None
 
@@ -52,3 +52,23 @@ class Configs(object):
             kwargs.update({'application':obj()})
             self.application = obj()
             # self.settings = self.application.settings
+
+
+    class ChooseSelector(object):
+
+        def __init__(self, flag=False):
+            self.flag = flag
+
+        def server_forever(self, debug=False):
+            if self.flag:
+                self.server_forever_epoll(debug=debug)
+            else:
+                self.server_forever_select(debug=debug)
+
+        def server_forever_epoll(self, **kw):
+            raise NotImplementedError
+
+        def server_forever_select(self, **kw):
+            raise NotImplementedError
+
+

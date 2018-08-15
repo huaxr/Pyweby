@@ -3,9 +3,11 @@ import json
 import time
 
 from handle.request import HttpRequest
-from handle.exc import StatusError,MethodNotAllowedException
-from concurrent.futures import _base, wait,ALL_COMPLETED, FIRST_COMPLETED, FIRST_EXCEPTION
+from handle.exc import StatusError,MethodNotAllowedException,EventManagerError
+from concurrent.futures import _base
 from util.Observer import EventFuture,Eventer
+from util.logger import Logger
+import logging
 
 
 class HttpResponse(object):
@@ -55,6 +57,7 @@ class DangerResponse(HttpResponse):
 class WrapResponse(DangerResponse):
 
     def __init__(self,wrapper_request,event_manager=None,sock=None,PollCycle=None):
+
         assert issubclass(wrapper_request.__class__,HttpRequest)
 
         self.wrapper = wrapper_request
@@ -71,11 +74,18 @@ class WrapResponse(DangerResponse):
         self.path = self.tuples[1]
         self.query = self.tuples[2]
         self.version = self.tuples[3]
-        self.msg_pair = {200:'OK',
-                         400:'METHOD NOT ALLOWED',
-                         404:'NOT FOUND',
-                         500:'SERVER ERROR'}
-        # self.eventManager =
+        self.msg_pair = {200: 'OK',
+                         301: 'Permanently Moved',
+                         302: 'Moved Temporarily',
+                         400: 'METHOD NOT ALLOWED',
+                         404: 'NOT FOUND',
+                         500: 'SERVER ERROR'}
+
+        self.headers = {}
+
+        self.Log = Logger(logger_name=__name__)
+        self.Log.setLevel(logging.INFO)
+
 
         super(WrapResponse,self).__init__()
 
@@ -167,32 +177,56 @@ class WrapResponse(DangerResponse):
 
 
     def gen_headers(self,version, status, msg, add_header=None):
+        tmp = []
         '''
         return the headers that contains the response prefix
         '''
-        header = u"{version} {status} {msg}\r\nServer: Pyweby Web 1.0".format(version=version,
-                                                                                  status=status, msg=msg)
-        if add_header and isinstance(header,dict):
-            #TODO add header here
-            pass
 
-        return header
+        self.headers['Server'] = " Pyweby Web 1.0"
+        self.headers['first_line'] = "{version} {status} {msg}".format(version=version, status=status,msg=msg)
 
-    def gen_body(self,  prefix='', if_need_result = False):
+        if add_header and isinstance(add_header,dict):
+            for k,b in add_header.items():
+                if k not in self.headers.keys():
+                    self.headers[k] = b
+
+        if hasattr(self.wrapper,'_status_code') or hasattr(self.wrapper,'response_header'):
+
+            self.headers.update(self.wrapper.response_header)
+            status_code = self.wrapper._status_code
+            self.headers['first_line'] = "{version} {status} {msg}".format(
+                version=version,status=status_code or status, msg=self.msg_pair[status_code])
+
+        # in Python3, ''.join(list) will raise `TypeError: sequence item 0: expected string, xx found`
+        first_line = self.headers.pop('first_line')
+        tmp.append(first_line)
+        for pair in self.headers.items():
+            tmp.append(': '.join(pair))
+
+        header = '\r\n'.join(str(s) for s in tmp)
+        return header + "\r\n\r\n"
+
+
+    def gen_body(self,  prefix="\r\n\r\n", if_need_result = False):
         '''
         generator the body contains headers
         :param prefix: this prefix to tail whether the response package is integrity
         '''
         try:
-            instancemethod = self.discern_result(time_consuming_op=self.switch_method(self.method))
-            body, status = instancemethod()
-        except TypeError:
-            body, status = self.discern_result(time_consuming_op=self.switch_method(self.method))
-        except ValueError:
-            #too many values to unpack (expected 2)
-            return None
+            tmp = self.discern_result(time_consuming_op=self.switch_method(self.method))()
+            if tmp is None:
 
-        '''
+                # You just need to generate a 302 hop and pass it to sock.
+                response_for_no_return = self.gen_headers(self.version,None,None)
+                return response_for_no_return
+
+            body,status = tmp
+
+        except Exception as e:
+            self.Log.info(e)
+            return self.not_future_body(500, 'internal server error', prefix=prefix)
+
+        """
         8.10
         since from  switch_method getting called, the returning result can be
         an normal bytes? or string? type for return.
@@ -205,18 +239,13 @@ class WrapResponse(DangerResponse):
         8.14
         solution: using Observer-Model to delegate the Future and current socket
         to the EventMaster
-        '''
-
+        """
         if isinstance(body,_base.Future):
             # WE DON'T NEED if_need_result FLAG ANYMORE,CAUSE WE CAN JUDGE THE BRANCH TO GO BY
             # distinguish whether body is Future or (str,bytes...)
             self.ok_body(body)
         else:
-            msg = self.msg_pair.get(status,200)
-            if prefix != u'\r\n'*2:
-                return json.dumps(body)
-            else:
-                return self.gen_headers(self.version, status, msg) + prefix + str(body)
+            return self.not_future_body(status, body, prefix)
 
 
     def callback_result(self,finished_future):
@@ -234,7 +263,20 @@ class WrapResponse(DangerResponse):
         if issubclass(EventFuture, Eventer):
             event = EventFuture(future,self.sock,_PollCycle=self.PollCycle)
             event.dict["type"] = u'futures'
+            if self.event_manager is None:
+                raise EventManagerError
             self.event_manager.addFuture(event)
 
         else:
             raise OSError("EventFuture must be new_class!")
+
+    def not_future_body(self,status,body,prefix=None):
+
+        assert isinstance(status,int)
+        assert not isinstance(body, _base.Future)
+
+        msg = self.msg_pair.get(status, 200)
+        if prefix != u'\r\n' * 2:
+            return json.dumps(body)
+        else:
+            return self.gen_headers(self.version, status, msg) + prefix + str(body)

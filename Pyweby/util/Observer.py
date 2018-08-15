@@ -18,15 +18,7 @@ class Eventer(object):
     '''
     def __init__(self):
         pass
-
-    def __get__(self, instance, owner):
-        pass
-
-    def __set__(self, instance, value):
-        pass
-
-    def __del__(self, instance):
-        pass
+    pass
 
 class Switcher(object):
     '''

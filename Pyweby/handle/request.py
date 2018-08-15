@@ -32,15 +32,15 @@ class method_check(object):
 
 class HttpRequest(object):
 
-    def __init__(self,headers=None,handlers=dict,conn =None):
+    def __init__(self,headers=None,handlers=dict,sock =None):
         self.headers = headers
         self.handlers = handlers
-        self.conn_obj = conn
+        self.sock = sock
+
         self._starttime = time.time()
 
         # added attribute
         self.request = None
-        self.send = None
         self.app = None
 
     def __repr__(self):
@@ -60,6 +60,10 @@ class HttpRequest(object):
         except MethodNotAllowedException:
 
             router = WrapRequest.METHOD_NOT_ALLOWED
+
+        except Exception:
+
+            router = WrapRequest.INTERNAL_SERVER_ERROR
 
         return router
 
@@ -105,6 +109,12 @@ class METHOD_NOT_ALLOWED(HttpRequest):
     def post(self):
         return {'400': 'method not allowed'}, 400
 
+class INTERNAL_SERVER_ERROR(HttpRequest):
+    def get(self):
+        return {'400':'internal server error'},500
+
+    def post(self):
+        return {'400': 'internal server error'}, 500
 
 class DangerousRequest(HttpRequest):
 
@@ -126,18 +136,23 @@ class WrapRequest(DangerousRequest):
     METHODS = method_check.METHODS
     DEFAULT_INDEX = PAGE_NOT_FOUNT
     METHOD_NOT_ALLOWED = METHOD_NOT_ALLOWED
+    INTERNAL_SERVER_ERROR = INTERNAL_SERVER_ERROR
 
-    def __init__(self,headers,callback,handlers=None,application=None):
-        self.headers = headers
+    def __init__(self,request_data,callback,handlers=None,application=None,sock=None):
+        self.request_data = request_data
         self.handlers = callback(handlers)
+
         self.application = application
-        self.pair = {}
+        self.sock = sock
+
+        self._has_wrapper = False
         self.regexp = re.compile(r'\r?\n')
         self.regdata = u'\r\n\r\n'
-        self._has_wrapper = False
+
+        self.headers = self.wrap_headers(self.request_data)
         self.router = None
 
-        super(DangerousRequest,self).__init__(headers=self.headers,handlers=self.handlers)
+        super(DangerousRequest,self).__init__(headers=self.headers,handlers=self.handlers,sock = sock)
 
 
     @staticmethod
@@ -148,7 +163,8 @@ class WrapRequest(DangerousRequest):
         return wrapper
 
 
-    def wrap_headers(self):
+    def wrap_headers(self,bytes_header):
+        tmp = {}
         '''
         utilize ':' symbol to split headers into key-value parameter pairs
         an keep the result in the self.pair
@@ -164,22 +180,22 @@ class WrapRequest(DangerousRequest):
             bytes2str: decode().
             '''
             try:
-                headers = self.headers.decode()
+                headers = bytes_header.decode()
             except Exception:
-                headers = self.headers
+                headers = bytes_header
 
             for line in self.regexp.split(headers):
                 if line:
                     if ':' not in line:
                         #bug report, the uri can not contains ':'
-                        self.pair['start_line'] = line
+                        tmp[u'first_line'] = line
                     else:
                         attribute , parameter = line.split(':',1)
-                        self.pair[attribute] = parameter.strip()
+                        tmp[attribute] = parameter.strip()
                 else:
                     break
         self._has_wrapper = True
-        return self.pair
+        return tmp
 
     def wrap_param(self):
         '''
@@ -198,9 +214,9 @@ class WrapRequest(DangerousRequest):
                 # handing TypeError: a bytes-like object is required, not 'str' for python3
                 # for Compatible with python2, try and catch
                 try:
-                    data = self.headers.decode().split(self.regdata,1)[1]
+                    data = self.request_data.decode().split(self.regdata,1)[1]
                 except Exception:
-                    data = self.headers.split(self.regdata,1)[1]
+                    data = self.request_data.split(self.regdata,1)[1]
 
                 if data:
                     return data
@@ -212,8 +228,7 @@ class WrapRequest(DangerousRequest):
 
     @method_check
     def get_first_line(self,callback=None):
-
-        start_line = self.wrap_headers()['start_line']
+        start_line = self.headers['first_line']
         method , uri, version = start_line.split(' ')
         try:
             path, query = uri.split('?',1)
@@ -222,8 +237,7 @@ class WrapRequest(DangerousRequest):
             return (method,uri,None,version)
 
     def get_attribute(self,attr):
-        self.wrap_headers()
-        return self.pair.get(attr,None)
+        return self.headers.get(attr,None)
 
 
     def get_arguments(self,key,default):
@@ -238,9 +252,24 @@ class WrapRequest(DangerousRequest):
         '''
         if arguments:
             return arguments.get(key,default)
+        else:
+            return default
 
 
+    def redirect(self,uri,permanent_redirect = False,status=None):
+        # 302 header looks like:
+        # HTTP/1.1 302 Moved Temporarily
+        # Location: path
+        if status is None:
+            status = 301 if permanent_redirect else 302
+        else:
+            assert isinstance(status, int) and 300 <= status <= 399
 
+        self.set_status(status)
+        self.set_header("Location", uri)
 
+    def set_status(self,code):
+        self._status_code = code
 
-
+    def set_header(self,k,v):
+        self.response_header = {k:v}

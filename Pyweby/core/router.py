@@ -1,6 +1,11 @@
 import select
 from core.select_select import SelectCycle
 
+try:
+    from core.select_epoll import EpollCycle
+except (ImportError,AttributeError):
+    EpollCycle = SelectCycle
+
 class Router(object):
 
     def __new__(cls, *args, **kwargs):
@@ -72,7 +77,11 @@ class DistributeRouter(Router):
     @classmethod
     def _choosen(cls):
         if hasattr(select, 'epoll'):
-            raise NotImplementedError
+            from core.select_epoll import EpollCycle
+            return  EpollCycle
+        if hasattr(select, "kqueue"):
+            # on BSD or Mac
+            pass
         if hasattr(select,'select'):
             return SelectCycle
 
@@ -100,12 +109,14 @@ class DistributeRouter(Router):
 
     @classmethod
     def ok_value(cls,instance):
-        assert isinstance(instance, (SelectCycle,)), 'Error base instance to handler'
+        assert isinstance(instance, (SelectCycle,EpollCycle,)), 'Error base instance to handler'
 
 
 class Looper(DistributeRouter):
 
-    def __init__(self,*args,**kwargs):
+    def __init__(self,handlers=None,enable_manager=False,*args,**kwargs):
+        self.handlers = handlers
+        self.enable_manager = enable_manager
 
         super(Looper,self).__init__(*args,**kwargs)
 
@@ -127,4 +138,5 @@ class Looper(DistributeRouter):
         :return:
         '''
         raise NotImplementedError
+
 
