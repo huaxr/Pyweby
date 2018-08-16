@@ -26,3 +26,11 @@ class NoPackageFound(Exception):
 class EventManagerError(Exception):
     def __init__(self, msg=None):
         super(EventManagerError, self).__init__(msg or 'For Future result. you must set enable_manager=True!')
+
+class NoHandlingError(Exception):
+    def __init__(self, msg=None):
+        super(NoHandlingError, self).__init__(msg or 'There is no handing for the specific branch yet')
+
+class JsonPraseError(Exception):
+    def __init__(self, msg=None):
+        super(JsonPraseError, self).__init__(msg or 'JsonPraseError, You may passed an callable object that json could not prase it')

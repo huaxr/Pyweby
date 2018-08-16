@@ -3,17 +3,38 @@ import json
 import time
 
 from handle.request import HttpRequest
-from handle.exc import StatusError,MethodNotAllowedException,EventManagerError
+from handle.exc import StatusError,MethodNotAllowedException,EventManagerError,NoHandlingError,JsonPraseError
 from concurrent.futures import _base
 from util.Observer import EventFuture,Eventer
 from util.logger import Logger
 import logging
+
+class restful(object):
+    def __init__(self,fn):
+        self.fn = fn
+
+    def __get__(self, instance, cls=None):
+
+        if instance is None:
+            return self
+        result = self.fn(instance)
+        assert isinstance(result,(list,tuple)) and len(result) == 2
+        tmp = {}
+        tmp['res'] = result[0]
+        tmp['status'] = result[1]
+        try:
+            json.dumps(tmp)
+        except Exception:
+            raise JsonPraseError('Error format')
+        return tmp
 
 
 class HttpResponse(object):
 
     def add_future_result(self,*args,**kwargs):
         raise NotImplementedError
+
+
 
 class DangerResponse(HttpResponse):
     def __init__(self,*args,**kwargs):
@@ -126,6 +147,7 @@ class WrapResponse(DangerResponse):
 
                 nexter = getattr(router,'get')
 
+
             elif method.upper() == 'POST':
                 '''
                 handler POST method
@@ -161,20 +183,30 @@ class WrapResponse(DangerResponse):
             if result:
                 if isinstance(result,types.MethodType):
                     return result
+
+                elif isinstance(result,dict):
+                    return result
+
                 elif isinstance(result,(str,bytes)):
                     body, status = result, 200
+
                 elif isinstance(result,(tuple,list)) and len(result) == 2:
                     body, status = result[0], result[1]
                     assert isinstance(status,int) and  status in self.msg_pair.keys(), StatusError(status=status)
+
+                elif isinstance(result,types.FunctionType):
+                    raise NoHandlingError()
+
                 else:
-                    raise Exception('no handlering')
+                    raise NoHandlingError('no handlering')
 
                 '''
                 for return result pretty only, never user json.dumps before , otherwise status is under prase
                 too
                 '''
                 return json.dumps(body), status
-
+            else:
+                raise StopIteration("Error result at `discern_result`")
 
     def gen_headers(self,version, status, msg, add_header=None):
         tmp = []
@@ -213,17 +245,26 @@ class WrapResponse(DangerResponse):
         :param prefix: this prefix to tail whether the response package is integrity
         '''
         try:
-            tmp = self.discern_result(time_consuming_op=self.switch_method(self.method))()
+            tmp = self.discern_result(time_consuming_op=self.switch_method(self.method))
+
             if tmp is None:
 
                 # You just need to generate a 302 hop and pass it to sock.
                 response_for_no_return = self.gen_headers(self.version,None,None)
                 return response_for_no_return
 
-            body,status = tmp
+
+            if isinstance(tmp, types.MethodType):
+                body,status = tmp()
+
+            elif isinstance(tmp, dict):
+                body ,status = tmp, '_'
+
+            else:
+                raise NoHandlingError
 
         except Exception as e:
-            self.Log.info(e)
+            self.Log.warning(e)
             return self.not_future_body(500, 'internal server error', prefix=prefix)
 
         """
@@ -244,6 +285,11 @@ class WrapResponse(DangerResponse):
             # WE DON'T NEED if_need_result FLAG ANYMORE,CAUSE WE CAN JUDGE THE BRANCH TO GO BY
             # distinguish whether body is Future or (str,bytes...)
             self.ok_body(body)
+
+        elif isinstance(body,dict):
+
+            return self.restful_body(body,200)
+
         else:
             return self.not_future_body(status, body, prefix)
 
@@ -279,4 +325,15 @@ class WrapResponse(DangerResponse):
         if prefix != u'\r\n' * 2:
             return json.dumps(body)
         else:
-            return self.gen_headers(self.version, status, msg) + prefix + str(body)
+            return self.gen_headers(self.version, status, msg) + str(body)
+
+    def set_header(self,k,v):
+        return {k:v}
+
+
+    def restful_body(self,body,status):
+        return self.gen_headers(self.version,
+                                status,
+                                self.msg_pair.get(status,200),
+                                add_header=self.set_header("Content-Type","application/json")) + \
+                                str(json.dumps(body))

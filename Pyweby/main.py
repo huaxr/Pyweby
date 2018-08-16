@@ -3,6 +3,7 @@ from core.router import  Looper
 from core.config import Configs
 
 from core.concurrent import Executor,asyncpool
+from handle.response import restful
 import time
 import os
 
@@ -23,20 +24,19 @@ class testRouter2(HttpRequest):
         time.sleep(counts)
         return "sleeper call over, %d" %(counts)
 
+    @restful
     def get(self):
         # print(self.request)
         arguments = self.request.get_arguments('key', 'defalut')
         value = int(arguments)
-        result = self.sleeper(value)   #return futures
-        # arguments = self.request.get_arguments('key','defalut get value')
-        return result,200
+        # result = self.sleeper(value)   #return futures
+        return {'test':'test','test2':[1,2,3,4],'test3':{'xx':value}},200
 
 
     def post(self):
         arguments = self.request.get_arguments('key', 'defalut')
         value = int(arguments)
         result = self.sleeper(value)  # return futures
-        # arguments = self.request.get_arguments('key','defalut get value')
         return result, 200
 
 
@@ -57,7 +57,7 @@ class Barrel(Configs.Application):
 if __name__ == '__main__':
     loop = Looper()
     server = loop(Barrel) or loop(handlers=[(r'/hello',testRouter2),],enable_manager=1)
-    server.listen(8800)
+    server.listen(8000)
     server.server_forever(debug=False)
 
 
