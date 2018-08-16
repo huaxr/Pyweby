@@ -6,7 +6,8 @@ An awesome non-blocking web server achieved by python3, create for surpassing To
 1. it's convenient and reliable to using the project to start an web application.
 1. concurrent Future.result() is non-blocking by Observer.(it's really great future)
 1. compatible with python3 and python2 ,win , linux.
-1. redirect 302 now support -- 2018.8.15
+1. redirect 302 now support (using self.request.redirect)-- 2018.8.15
+1. restful api (set descriptor @restful on the get or post method)
 1. enhancing capacity is still a mystery, pay close attention to it [https://github.com/huaxr/Pyweby/]()
 
 
@@ -38,12 +39,13 @@ class testRouter2(HttpRequest):
         time.sleep(counts)
         return "sleeper call over, %d" %(counts)
 
+    @restful 
     def get(self):
         # print(self.request)
         arguments = self.request.get_arguments('key', 'defalut')
         value = int(arguments)
         result = self.sleeper(value)   #return futures
-        return result,200
+        return "result",200
 
     def post(self):
         arguments = self.request.get_arguments('key', 'defalut')
