@@ -3,14 +3,12 @@ An awesome non-blocking web server achieved by python3, create for surpassing To
 
 
 ### Futures
-1. it's convenient and reliable to using the project to start an web application.
-1. compatible with python3 and python2 ,win , linux.
-
-1. concurrent Future.result() is non-blocking by observer.
+1. it's reliable ,compatible and convenient to using the project to start an web application.
+1. concurrent future.result() is non-blocking by observer.
 1. redirect 302 now support (using self.request.redirect)
-1. restful api (set descriptor @restful on the get or post method)
-1. template rendering html is under ready (support major jinja2 render does, the same semanteme like Flask does!)
-1. others: log system. malware analysis and disinfect..
+1. restful api is easily back up(set descriptor @restful on the get or post method)
+1. template rendering html is under ready (support major jinja2 render functionality, the same semanteme like Flask does!)
+1. others: log system. malicious request analysis and disinfect and so on..
 1. enhancing capacity is still a mystery, pay close attention to it [https://github.com/huaxr/Pyweby/]()
 
 
