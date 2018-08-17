@@ -120,6 +120,8 @@ class Looper(DistributeRouter):
     def __init__(self,handlers=None,enable_manager=False,*args,**kwargs):
         self.handlers = handlers
         self.enable_manager = enable_manager
+        self.template_path = kwargs.get('template_path','')
+        self.static_path = kwargs.get('static_path','')
 
         super(Looper,self).__init__(*args,**kwargs)
 

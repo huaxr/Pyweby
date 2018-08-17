@@ -18,7 +18,7 @@ from handle.request import WrapRequest,HttpRequest
 from handle.response import WrapResponse
 from handle.exc import NoRouterHandlers,FormatterError
 from util.logger import Logger
-from util.Observer import Event, EventManager
+from util.Engines import Event, EventManager
 
 class MainCycle(object):
 
@@ -222,6 +222,7 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
                         # EventManager sub threads Looping.
                         writers = WrapResponse(msg,self.eventManager,sock,self)
                         body = writers.gen_body(prefix="\r\n\r\n")
+
                         if body:
                             try:
                                 bodys = body.encode()

@@ -30,7 +30,7 @@ def get_file_handler(log_file):
 def get_stream_handler():
     stream_handler = logging.StreamHandler()
     if platform.system() == 'Windows':
-        stream_formatter = logging.Formatter("[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s", "%H:%M:%S")
+        stream_formatter = logging.Formatter("[%(asctime)s] [%(levelname)s] %(message)s", "%H:%M:%S")
         stream_handler.setFormatter(stream_formatter)
     else:
         try:
@@ -54,3 +54,8 @@ def init_config(logger_name=None,log_file=None):
     LOGGER.addHandler(stream_handler)
     return LOGGER
 
+
+def init_loger(name):
+    Log = Logger(name)
+    Log.setLevel(logging.INFO)
+    return Log

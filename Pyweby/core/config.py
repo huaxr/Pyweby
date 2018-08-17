@@ -1,10 +1,9 @@
 #coding:utf-8
-import types
-
 import itertools
-
+import sys
 
 class Configs(object):
+    PY3 = sys.version_info >= (3,)
     R = 0x01
     W = 0x04
     E = 0x08

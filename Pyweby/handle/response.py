@@ -1,11 +1,12 @@
 import types
 import json
 import time
+from inspect import Traceback
 
 from handle.request import HttpRequest
 from handle.exc import StatusError,MethodNotAllowedException,EventManagerError,NoHandlingError,JsonPraseError
 from concurrent.futures import _base
-from util.Observer import EventFuture,Eventer
+from util.Engines import EventFuture,Eventer
 from util.logger import Logger
 import logging
 
@@ -245,17 +246,19 @@ class WrapResponse(DangerResponse):
         :param prefix: this prefix to tail whether the response package is integrity
         '''
         try:
+
             tmp = self.discern_result(time_consuming_op=self.switch_method(self.method))
 
-            if tmp is None:
-
-                # You just need to generate a 302 hop and pass it to sock.
-                response_for_no_return = self.gen_headers(self.version,None,None)
-                return response_for_no_return
-
-
             if isinstance(tmp, types.MethodType):
-                body,status = tmp()
+                # Do not try execute tmp() twice.
+                X_X_X = tmp()
+
+                if  X_X_X is None:
+                    # You just need to generate a 302 hop and pass it to sock.
+                    response_for_no_return = self.gen_headers(self.version, None, None)
+                    return response_for_no_return
+
+                body,status = X_X_X
 
             elif isinstance(tmp, dict):
                 body ,status = tmp, '_'
@@ -264,7 +267,7 @@ class WrapResponse(DangerResponse):
                 raise NoHandlingError
 
         except Exception as e:
-            self.Log.warning(e)
+            self.Log.warning(e.with_traceback())
             return self.not_future_body(500, 'internal server error', prefix=prefix)
 
         """
