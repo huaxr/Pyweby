@@ -1,3 +1,8 @@
+#coding:utf-8
+
+#reference:  https://blog.csdn.net/bytxl/article/details/20528749
+
+
 import ssl
 import socket
 from Configs import PY3
