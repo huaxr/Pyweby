@@ -16,7 +16,7 @@ An awesome non-blocking web server achieved by python3, create for surpassing To
 ##### easy example code to show it power! 
 
 **main.py**
-```
+```python
 from handle.request import HttpRequest
 from core.router import  Looper
 from core.config import Configs
