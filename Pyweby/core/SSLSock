@@ -1,0 +1,25 @@
+import ssl
+import socket
+from Configs import PY3
+
+sock = socket.socket()
+sock.bind(("",443))
+sock.listen(123)
+
+
+def sslsock(PY3):
+	if PY3:
+		context = ssl.SSLContext(ssl.PROTOCOL_TLSv1)
+		context.load_cert_chain(certfile="cert.pem",keyfile="key.pem")
+		while 1:
+			conn, addr = sock.accept()
+			conn.setblocking(False)
+			stream = context.wrap_socket(conn,server_side=True)
+			data = stream.recv(1024)
+			print(data)
+	else:
+		while 1:
+			conn, addr = sock.accept()
+			stream = ssl.wrap_socket(conn,"key.pem","cert.pem",server_side=True,ssl_version=ssl.PROTOCOL_TLSv1)
+			data = stream.recv(1024)
+			print(data)
