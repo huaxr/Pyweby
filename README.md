@@ -8,6 +8,7 @@ An awesome non-blocking web server achieved by python3, create for surpassing To
 1. redirect 302 now support (using self.request.redirect)
 1. restful api is easily back up(set descriptor @restful on the get or post method)
 1. template rendering html is under ready (support major jinja2 render functionality, the same semanteme like Flask does!)
+1. SSL web enabled internal.
 1. others: log system. malicious request analysis and disinfect and so on..
 1. enhancing capacity is still a mystery, pay close attention to it [https://github.com/huaxr/Pyweby/]()
 
@@ -17,6 +18,8 @@ An awesome non-blocking web server achieved by python3, create for surpassing To
 
 **main.py**
 ```python
+import ssl
+
 from handle.request import HttpRequest
 from core.router import  Looper
 from core.config import Configs
@@ -54,17 +57,28 @@ class testRouter2(HttpRequest):
         # test for async concurrent and non-blocking Future
         arguments = self.request.get_arguments('key', 'defalut')
         value = int(arguments)
-        result = self.sleeper(value)  
+        result = self.sleeper(value)
         return result, 200
 
+
+class testRouter3(HttpRequest):
+    def get(self):
+        # test for redirect
+        return "Hello World",200
 
 class Barrel(Configs.Application):
     cls_test = 'cls test'
     def __init__(self):
         self.handlers = [(r'/hello',testRouter2),
-                         (r'/', testRouter),]
+                         (r'/', testRouter),
+                         (r'/test', testRouter3),]
         self.settings = {
-            "enable_manager":1,   # if you want get the Future.result and without blocking the server. set it True
+            "enable_manager":True,   # if you want get the Future.result and without blocking the server. set it True
+            "ssl_options": {"ssl_enable": True,  # support ssl for secure reason
+                            "ssl_version": ssl.PROTOCOL_SSLv23,
+                            "certfile": os.path.join(os.path.dirname(__file__), "static","server.crt"),
+                            "keyfile": os.path.join(os.path.dirname(__file__), "static","server.key")},
+
             "template_path" : os.path.join(os.path.dirname(__file__), "templates"),
             "static_path" : os.path.join(os.path.dirname(__file__), "static"),
         }
@@ -78,9 +92,8 @@ class Barrel(Configs.Application):
 if __name__ == '__main__':
     loop = Looper()
     server = loop(Barrel) or loop(handlers=[(r'/hello',testRouter2),],enable_manager=1)
-    server.listen(8000)
+    server.listen()
     server.server_forever(debug=False)
-
 
 
 
@@ -89,11 +102,11 @@ if __name__ == '__main__':
 ### USAGE
 
 ```
->> curl http://127.0.0.1:8000/hello?key=5
+>> curl https://127.0.0.1:8000/hello?key=5
 
 at the same time , starting another console and input:
 
->> curl -XPOST http://127.0.0.1:5000/hello -d "key=5"
+>> curl -XPOST https://127.0.0.1:5000/hello -d "key=5"
 
 which means start 2 request , every request will block key=5 seconds,
 but infusive thing is that both are returned at the same time.
