@@ -34,3 +34,7 @@ class NoHandlingError(Exception):
 class JsonPraseError(Exception):
     def __init__(self, msg=None):
         super(JsonPraseError, self).__init__(msg or 'JsonPraseError, You may passed an callable object that json could not prase it')
+
+class ProtocolError(Exception):
+    def __init__(self, msg=None):
+        super(ProtocolError, self).__init__(msg or 'The HTTP Request Protocol Error')

@@ -1,15 +1,14 @@
 #coding:utf-8
+import ssl
+
 try:
     import queue as Queue #Python3
 except ModuleNotFoundError:
     import Queue
 
-import logging
 import threading
 import socket
 import types
-import time
-import json
 import select
 
 from .ServerSock import gen_serversock
@@ -17,8 +16,11 @@ from .config import Configs
 from handle.request import WrapRequest,HttpRequest
 from handle.response import WrapResponse
 from handle.exc import NoRouterHandlers,FormatterError
-from util.logger import Logger
-from util.Engines import Event, EventManager
+from util.Engines import  EventManager
+from .ServerSock import SSLSocket
+from util.logger import init_loger,traceback
+
+Log = init_loger(__name__)
 
 class MainCycle(object):
 
@@ -42,6 +44,8 @@ class MainCycle(object):
             else:
                 raise FormatterError(uri=uri,obj=obj)
 
+    def ssl(self,wrapper):
+        raise NotImplementedError
 
 
 class PollCycle(MainCycle,Configs.ChooseSelector):
@@ -56,8 +60,6 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
     MSG_QUEUE.connection = {}
     MSG_QUEUE.request = {}
     MSG_QUEUE.response = {}
-    EOL1 = b'\n\n'
-    EOL2 = b'\n\r\n'
 
     def __init__(self,*args,**kwargs):
         self._impl = kwargs.get('__impl',None)
@@ -72,8 +74,23 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
         # 2. using Configs.Application wrapper the handler in __init__
         # so, using trigger_handlers to get handlers for later usage.
         self.handlers = self.trigger_handlers(kwargs)
-        self.Log = Logger(logger_name=__name__)
-        self.Log.setLevel(logging.INFO)
+
+        # provides access to Transport Layer Security (often known as
+        # “Secure Sockets Layer”) encryption and peer authentication
+        # facilities for network sockets, both client-side and server-side
+        self.ssl_options = kwargs.get('ssl_options', {})
+        assert isinstance(self.ssl_options, dict)
+        self.ssl_enable =  self.ssl_options.get('ssl_enable', False)
+        self.certfile = self.ssl_options.get('certfile','')
+        self.keyfile = self.ssl_options.get('keyfile','')
+
+        if self.ssl_enable and Configs.PY3:
+            # self.context = ssl_context(self.ssl_options)
+            self.context = ssl.SSLContext(ssl.PROTOCOL_SSLv23)
+            self.context.load_cert_chain(certfile=self.certfile, keyfile=self.keyfile)
+        else:
+            self.context = None
+
 
         self.eventManager = None
         '''
@@ -89,7 +106,6 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
 
         Configs.ChooseSelector.__init__(self,flag=self.__EPOLL)
 
-
     def swich_eventmanager_on(self):
         #starting the  eventManager._thread  for calling _run_events
         #and getting the events from the manager's Queue, if the Queue.get()
@@ -101,10 +117,8 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
         self.eventManager.stop()
 
 
-    def listen(self,port):
-        self.server = gen_serversock(port)
-
-        #AttributeError: 'SelectCycle' object has no attribute 'handlers'
+    def listen(self,port=None):
+        self.server = gen_serversock(port,ssl_enable=self.ssl_enable)
         PollCycle.check(self.handlers, None)
         self.add_handler(self.server, Configs.M)
 
@@ -148,26 +162,35 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
                 # there may some sockets means Exception and close by self,
                 # so we should pass it checking
                 fd_event_pair = self._impl.sock_handlers(self.timeout)
-            except OSError:
+            except OSError as e:
+                Log.info(traceback(e))
                 continue
-
-            if debug:
-                self.Log.info(fd_event_pair)
-                time.sleep(1)
 
             for sock,event in fd_event_pair:
                 if event & Configs.R:
                     if sock is self.server:
-
                         conn, address = sock.accept()
+                        # if using ssl
+                        # ValueError: do_handshake_on_connect should not be specified for non-blocking sockets
+                        # so disable non-blocking here and enable it after wrap the sock.
+                        # conn.setblocking(0)
 
-                        conn.setblocking(0)
+                        # just wrapped the conn-sock , socket-type to SSLSocket type
+                        try:
+                            with SSLSocket(self.context, conn, self.certfile, self.keyfile) as ssl_wrapper:
+                                conn = self.ssl(ssl_wrapper)
+                                conn.setblocking(0)
+
+                        except ssl.SSLError as e:
+                            Log.info(traceback(e))
+                            self.close(conn)
+                            continue
+
                         '''
                         for convenience and no blocking program, we put the connection into inputs loop,
                         with the next cycling, this conn's fileno being ready condition, and can be append 
                         by readable list by select loops
                         '''
-
                         # trigger add_sock to change select.select(pool)'s pool, and change the listening
                         # event IO Pool
                         self._impl.add_sock(conn, Configs.R)
@@ -176,9 +199,9 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
 
                     else:
                         try:
-                            data = sock.recv(60000)
-                            # self.Log.info(data)
-                        except socket.error:
+                            data = sock.recv(6000)
+                        except socket.error as e:
+                            Log.info(traceback(e))
                             self.close(sock)
                             continue
 
@@ -385,3 +408,10 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
     def trigger_handlers(self,kw):
         raise NotImplementedError
 
+
+    def ssl(self,wrapper):
+        if self.ssl_enable:
+            return wrapper.ssl_context()
+
+        else:
+            return wrapper.conn

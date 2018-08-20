@@ -17,7 +17,7 @@ except ImportError:
 
 from .exc import MethodNotAllowedException
 from util.Engines import BaseEngine
-from util.logger import init_loger
+from util.logger import init_loger,traceback
 
 console = Log = init_loger(__name__)
 
@@ -424,8 +424,11 @@ class WrapRequest(DangerousRequest):
             '''
             try:
                 headers = bytes_header.decode()
-            except Exception:
+                assert not isinstance(headers,bytes),"The HTTP Request Protocol Error, SSL is disable now"
+            except Exception as e:
+                Log.info(traceback(e))
                 headers = bytes_header
+                assert not isinstance(headers, bytes),"The HTTP Request Protocol Error, SSL is disable now"
 
             for line in self.regexp.split(headers):
                 if line:

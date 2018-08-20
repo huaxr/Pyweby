@@ -3,8 +3,17 @@
 import logging
 import platform
 import os
+import sys
+
 from handle.exc import NoPackageFound
 LOGGER = None
+
+
+def traceback(msg):
+    _name = os.path.basename(sys._getframe(1).f_code.co_filename)
+    _func = sys._getframe(1).f_code.co_name
+    return '  |   '.join([str(msg)[:20],_name,_func])
+
 
 def set_level(level):
     global LOGGER
@@ -23,14 +32,14 @@ def get_current_path():
 
 def get_file_handler(log_file):
     file_handler = logging.FileHandler(os.path.join(get_current_path(),log_file))
-    file_formatter = logging.Formatter('[%(asctime)s] [%(levelname)s] %(message)s')
+    file_formatter = logging.Formatter('[%(asctime)s] %(message)s')
     file_handler.setFormatter(file_formatter)
     return file_handler
 
 def get_stream_handler():
     stream_handler = logging.StreamHandler()
     if platform.system() == 'Windows':
-        stream_formatter = logging.Formatter("[%(asctime)s] [%(levelname)s] %(message)s", "%H:%M:%S")
+        stream_formatter = logging.Formatter("[%(asctime)s] %(message)s", "%H:%M:%S")
         stream_handler.setFormatter(stream_formatter)
     else:
         try:

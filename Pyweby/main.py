@@ -1,3 +1,5 @@
+import ssl
+
 from handle.request import HttpRequest
 from core.router import  Looper
 from core.config import Configs
@@ -8,14 +10,13 @@ import time
 import os
 
 class testRouter(HttpRequest):
-    '''
-    Test for redirect !
-    '''
     def get(self):
+        # test for redirect
         return self.request.redirect("/hello?key=2")
 
     def post(self):
-        return self.request.render("child.html",tmp=[1,2,3,4333],ignore_cache=False)
+        # ignore_cache is a cache enable flag
+        return self.request.render("index.html",tmp=[1,2,3],ignore_cache=False)
 
 
 class testRouter2(HttpRequest):
@@ -26,27 +27,38 @@ class testRouter2(HttpRequest):
         time.sleep(counts)
         return "sleeper call over, %d" %(counts)
 
-    @restful
+    @restful  # test from restful api
     def get(self):
         arguments = self.request.get_arguments('key', 'defalut')
         value = int(arguments)
         return {'test':'test','test2':[1,2,3,4],'test3':{'xx':value}},200
 
-
     def post(self):
+        # test for async concurrent and non-blocking Future
         arguments = self.request.get_arguments('key', 'defalut')
         value = int(arguments)
-        result = self.sleeper(value)  # return futures
+        result = self.sleeper(value)
         return result, 200
 
+
+class testRouter3(HttpRequest):
+    def get(self):
+        # test for redirect
+        return "Hello World",200
 
 class Barrel(Configs.Application):
     cls_test = 'cls test'
     def __init__(self):
         self.handlers = [(r'/hello',testRouter2),
-                         (r'/', testRouter),]
+                         (r'/', testRouter),
+                         (r'/test', testRouter3),]
         self.settings = {
-            "enable_manager":1,   # if you want get the Future.result and without blocking the server. set it True
+            "enable_manager":True,   # if you want get the Future.result and without blocking the server. set it True
+            "ssl_options": {"ssl_enable": True,
+                            "ssl_version": ssl.PROTOCOL_SSLv23,
+                            "certfile": os.path.join(os.path.dirname(__file__), "static","server.crt"),
+                            "keyfile": os.path.join(os.path.dirname(__file__), "static","server.key")},
+
             "template_path" : os.path.join(os.path.dirname(__file__), "templates"),
             "static_path" : os.path.join(os.path.dirname(__file__), "static"),
         }
@@ -60,7 +72,7 @@ class Barrel(Configs.Application):
 if __name__ == '__main__':
     loop = Looper()
     server = loop(Barrel) or loop(handlers=[(r'/hello',testRouter2),],enable_manager=1)
-    server.listen(10000)
+    server.listen()
     server.server_forever(debug=False)
 
 
