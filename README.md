@@ -14,7 +14,7 @@ An awesome non-blocking web server achieved by python3, create for surpassing To
 
 
 ### MAIN CODE
-##### easy example code to show it power! 
+##### easy example code to show it's power! 
 
 **main.py**
 ```python
