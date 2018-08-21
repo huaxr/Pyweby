@@ -1,14 +1,157 @@
 import types
 import json
 import time
-from inspect import Traceback
+import sys
+import threading
+import os
+import copy
+import logging
+from functools import wraps
+from collections import OrderedDict
 
 from handle.request import HttpRequest
-from handle.exc import StatusError,MethodNotAllowedException,EventManagerError,NoHandlingError,JsonPraseError
+from handle.exc import (StatusError,MethodNotAllowedException,
+                        EventManagerError,NoHandlingError,JsonPraseError)
 from concurrent.futures import _base
 from util.Engines import EventFuture,Eventer
 from util.logger import Logger
-import logging
+from core.concurrent import safe_lock
+
+
+def _cache_result(**kwargs):
+    '''
+    wrapper for cache result from the api 's result.
+    '''
+    def wrapper(func):
+        @wraps(func)
+        def savvy(*_args,**_kwargs):
+            print(_args)
+            return CacheEngine(func, CacheContainer(**kwargs))
+
+        return savvy
+
+    return wrapper
+
+def cache_result(**kwargs):
+    '''
+    cache result purpose.
+    '''
+    def wrapper(func):
+        return CacheEngine(func, CacheContainer(**kwargs))
+    return wrapper
+
+
+class CacheEngine(object):
+
+    def __init__(self, function, cache=None, *args, **kwargs):
+        self.function = function
+        if cache:
+            self.cache = cache
+        else:
+            self.cache = CacheContainer()
+        self.args = args
+        self.kwargs = kwargs
+
+    def __call__(self, *args, **kwargs):
+        if kwargs.pop('format', None) is None:
+            # format like: `filename:function:args`
+            filename = os.path.basename(sys._getframe(1).f_code.co_filename).split('.')[0]
+            key = ':'.join([filename, getattr(self.function, '__name__'), repr((args, kwargs))])
+
+        else:
+            # if you want ignore parameter specific value, set the
+            # format True
+            import inspect, hashlib
+            key = inspect.signature(self.function) or \
+                  hashlib.md5(sys._getframe(0).f_code.co_code).hexdigest()[:10]
+        try:
+            return self.cache[key]
+
+        except KeyError:
+            value = self.function(*args, **kwargs)
+            self.cache[key] = value
+            return value
+
+
+class CacheContainer(object):
+
+    def __init__(self, **kwargs):
+        self.max_size = kwargs.pop('max_size', 100)
+        assert isinstance(self.max_size,int) and self.max_size>0
+        self.expiration = kwargs.pop('expiration', 60 * 5)
+        assert isinstance(self.expiration, int) and self.expiration > 0
+        self.concurrent = kwargs.pop('concurrent', False)
+        self._CacheResult = {}
+        self._expires = OrderedDict()
+        self._accesses = OrderedDict()
+        if self.concurrent:
+            self._rlock = threading.RLock()
+
+    @safe_lock
+    def size(self):
+        return len(self._CacheResult)
+
+    @safe_lock
+    def clear(self):
+        self._CacheResult.clear()
+        self._expires.clear()
+        self._accesses.clear()
+
+    def __contains__(self, key):
+        return self.has_key(key)
+
+    @safe_lock
+    def has_key(self, key):
+        return key in self._CacheResult
+
+    @safe_lock
+    def __setitem__(self, key, value):
+        t = int(time.time())
+        del self[key]
+        self._CacheResult[key] = value
+        self._accesses[key] = t
+        self._expires[key] = t + self.expiration
+        self.cleanup()
+
+    @safe_lock
+    def __getitem__(self, key):
+        t = int(time.time())
+        del self._accesses[key]
+        self._accesses[key] = t
+        self.cleanup()
+        return self._CacheResult[key]
+
+    @safe_lock
+    def __delitem__(self, key):
+        if key in self._CacheResult:
+            del self._CacheResult[key]
+            del self._expires[key]
+            del self._accesses[key]
+
+    @safe_lock
+    def cleanup(self):
+
+        if self.expiration is None:
+            return None
+        '''
+        some Python Versions does't allow del items when itering sequence object.
+        if you do this, some Exception will be raised like below.
+        `RuntimeError: OrderedDict mutated during iteration`
+        so , make a duplicate for it is a considerable way.
+        '''
+        duplicate = copy.deepcopy(self._expires)
+
+        for k in duplicate:
+            if duplicate[k] < int(time.time()):
+                del self[k]
+            else:
+                break
+
+        while (self.size() > self.max_size):
+            for k in self._accesses:
+                del self[k]
+                break
+
 
 class restful(object):
     def __init__(self,fn):
@@ -111,6 +254,8 @@ class WrapResponse(DangerResponse):
 
         super(WrapResponse,self).__init__()
 
+    def __repr__(self):
+        return repr('pyweby')
 
     def get_writer(self):
         return self.wrapper.conn_obj
@@ -182,10 +327,9 @@ class WrapResponse(DangerResponse):
             time_consuming_op.close()
 
             if result:
-                if isinstance(result,types.MethodType):
-                    return result
-
-                elif isinstance(result,dict):
+                # when using cache_result for caching the result in CacheEngine
+                # the descriptor will turn te result to be CacheEngine Object.
+                if isinstance(result,(types.MethodType,dict,CacheEngine)):
                     return result
 
                 elif isinstance(result,(str,bytes)):
@@ -253,6 +397,7 @@ class WrapResponse(DangerResponse):
                 # Do not try execute tmp() twice.
                 X_X_X = tmp()
 
+                # when no result return.
                 if  X_X_X is None:
                     # You just need to generate a 302 hop and pass it to sock.
                     response_for_no_return = self.gen_headers(self.version, None, None)
@@ -260,8 +405,13 @@ class WrapResponse(DangerResponse):
 
                 body,status = X_X_X
 
+            # when using @restful
             elif isinstance(tmp, dict):
                 body ,status = tmp, '_'
+
+            # when using @cache_result
+            elif isinstance(tmp, CacheEngine):
+                body, status = tmp('')
 
             else:
                 raise NoHandlingError

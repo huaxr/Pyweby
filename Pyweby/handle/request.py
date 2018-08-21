@@ -1,14 +1,8 @@
 #coding:utf-8
-import logging
 import time
 import re
 import os
 import threading
-
-from core.config import Configs
-
-if Configs.PY3:
-    from io import StringIO
 
 try:
     from urllib.parse import unquote
@@ -289,6 +283,7 @@ class HttpRequest(object):
             method, path, query, version = self.get_first_line
             sock_from, sock_port = self.sock.getpeername()
 
+            # print the request log .
             _log = '\t\t'.join([method,path,':'.join([sock_from,str(sock_port)])])
             console.info(_log)
 
@@ -476,6 +471,7 @@ class WrapRequest(DangerousRequest):
     @method_check
     def get_first_line(self,callback=None):
         start_line = self.headers['first_line']
+        assert isinstance(start_line,str),"[#] You may use `IE` browser, it's deny for that."
         method , uri, version = start_line.split(' ')
         try:
             path, query = uri.split('?',1)

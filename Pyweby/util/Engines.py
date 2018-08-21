@@ -10,6 +10,9 @@ except ImportError:
     from queue import Queue, Empty
 
 from threading import Thread,Timer
+from util.logger import init_loger,traceback
+
+Log = init_loger(__name__)
 
 
 __all__ = ('EventManager','Event','EventFuture','BaseEngine')
@@ -150,17 +153,24 @@ class EventManager(Switcher):
 
     def _futureProcess(self,event):
         try:
-            event.sock.send(event.future.result().encode())
-        except OSError:
+            if event.sock.fileno() > 0:
+                event.sock.send(event.future.result().encode())
+            else:
+                pass
+
+        except OSError as e:
             '''
             when calling sock.send, you must verify that the socket is not
             closed yet, if that happens, will raise OSError so will ignore
             it means op system has invoke GC for us. 
             '''
-            pass
-        # prevent select loop FULL
-        event.PollCycle.close(event.sock)
-        # event.sock.close()
+            Log.info(traceback(e))
+        except Exception as e:
+            Log.info(traceback(e))
+
+        finally:
+            event.PollCycle.close(event.sock)
+
 
     def _EventProcess(self, event):
         """handle the event"""

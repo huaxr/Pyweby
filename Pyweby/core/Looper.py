@@ -22,6 +22,7 @@ from util.logger import init_loger,traceback
 
 Log = init_loger(__name__)
 
+
 class MainCycle(object):
 
     application = None
@@ -51,15 +52,16 @@ class MainCycle(object):
 class PollCycle(MainCycle,Configs.ChooseSelector):
 
     '''
-    MSG_QUEUE is aim for avoiding threading condition and simplify
-    the threading.Lock acquire and release
-    '''
-    MSG_QUEUE = threading.local()
-    MSG_QUEUE.pair = {}
+    Threading. local () is a method that holds a global variable,
+    but it is accessible only to the current thread
 
-    MSG_QUEUE.connection = {}
-    MSG_QUEUE.request = {}
-    MSG_QUEUE.response = {}
+    '''
+    LOCAL = threading.local()
+
+    pair = {}
+    connection = {}
+    request = {}
+    response = {}
 
     def __init__(self,*args,**kwargs):
         self._impl = kwargs.get('__impl',None)
@@ -97,7 +99,7 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
         enable EventManager, which means getting callback future
         to be achieve soon.
         '''
-        self.enable_manager = kwargs.get('enable_manager',0)
+        self.enable_manager = kwargs.get('enable_manager',False)
         if self.enable_manager:
             self.eventManager = EventManager()
             self.swich_eventmanager_on()
@@ -163,7 +165,7 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
                 # so we should pass it checking
                 fd_event_pair = self._impl.sock_handlers(self.timeout)
             except OSError as e:
-                Log.info(traceback(e))
+                Log.info(traceback(e,"error"))
                 continue
 
             for sock,event in fd_event_pair:
@@ -186,21 +188,37 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
                             self.close(conn)
                             continue
 
-                        '''
-                        for convenience and no blocking program, we put the connection into inputs loop,
-                        with the next cycling, this conn's fileno being ready condition, and can be append 
-                        by readable list by select loops
-                        '''
-                        # trigger add_sock to change select.select(pool)'s pool, and change the listening
-                        # event IO Pool
-                        self._impl.add_sock(conn, Configs.R)
-                        # define the sock:Queue pair for message
-                        self.MSG_QUEUE.pair[conn] = Queue.Queue()
+                        except OSError as e2:
+                            Log.info(traceback(e2))
+                            self.close(conn)
+                            continue
+
+                        else:
+
+                            '''
+                            for convenience and no blocking program, we put the connection into inputs loop,
+                            with the next cycling, this conn's fileno being ready condition, and can be append 
+                            by readable list by select loops
+                            '''
+                            # trigger add_sock to change select.select(pool)'s pool, and change the listening
+                            # event IO Pool
+                            self._impl.add_sock(conn, Configs.R)
+                            # define the sock:Queue pair for message
+                            self.pair[conn] = Queue.Queue()
 
                     else:
                         try:
-                            data = sock.recv(6000)
+                            if sock.fileno() != -1:
+                                # Due to active or passive reasons, socket shutdown is not processed in time,
+                                # and it is necessary to determine whether socket is closed.
+                                data = sock.recv(6000)
+                            else:
+                                continue
                         except socket.error as e:
+                            Log.info(traceback(e))
+                            self.close(sock)
+                            continue
+                        except Exception as e:
                             Log.info(traceback(e))
                             self.close(sock)
                             continue
@@ -224,8 +242,11 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
                         if data:
                             # for later usage, when the next Loop by the kernel select, that's
                             # will be reuse the data putting in it.
-                            self.MSG_QUEUE.pair[sock].put(data)
-                            self._impl.add_sock(sock,Configs.W)
+                            if sock in self.pair:
+                                self.pair[sock].put(data)
+                                self._impl.add_sock(sock,Configs.W)
+                            else:
+                                continue
 
                         else:
                             # if there is no data receive, that means socket has been disconnected
@@ -234,7 +255,10 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
 
                 elif event & Configs.W:
                     try:
-                        msg = self.MSG_QUEUE.pair[sock].get_nowait()
+                        if sock in self.pair:
+                            msg = self.pair[sock].get_nowait()
+                        else:
+                            continue
 
                     except Queue.Empty:
                         pass
@@ -254,7 +278,6 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
 
                             # employ curl could't deal with 302
                             # you should try firefox or chrome instead
-
                             sock.send(bodys)
                             # do not call sock.close, because the sock still in the select,
                             # for the next loop, it will raise ValueEror `fd must not -1`
@@ -274,8 +297,9 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
                             # we can't set None to it
                             continue
                 else:
-                    self.Log.info("other reason, close sock")
+                    Log.info(traceback("other reason, close sock","error"))
                     self.close(sock)
+
 
     def server_forever_epoll(self, debug=False,timeout=-1):
         '''
@@ -290,20 +314,19 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
         6. Repeat steps 3 through 5 until finished
         7. Destroy the epoll object
         '''
-
         try:
             while 1:
                 events = self._impl.poll(timeout)
 
                 if not events:
-                    self.Log.info("Epoll timeout, continue roll poling.")
+                    Log.info("Epoll timeout, continue roll poling.")
                     continue
 
                 if debug:
-                    self.Log.info("there are %d events prepare to handling." %len(events))
+                    Log.info("there are %d events prepare to handling." %len(events))
 
                 for fileno, event in events:
-                    sock = self.MSG_QUEUE.connection[fileno]
+                    sock = self.connection[fileno]
 
                     # If active socket is the current server socket, represent that is a new connection.
                     # self.server if registered by listen method
@@ -313,8 +336,8 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
                         # Register new connection fileno to read event collection
 
                         self._impl.register(conn.fileno(), select.EPOLLIN)
-                        self.MSG_QUEUE.connection[conn.fileno()] = conn
-                        self.MSG_QUEUE.pair[conn] = Queue.Queue()
+                        self.connection[conn.fileno()] = conn
+                        self.pair[conn] = Queue.Queue()
 
                     # Readable Rvent
                     elif event & select.EPOLLIN:
@@ -322,7 +345,7 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
                         try:
                             data = sock.recv(60000)
                         except Exception as e:
-                            self.Log.info(e)
+                            Log.info(e)
                             self.eclose(fileno)
 
                         if self.application:
@@ -330,7 +353,7 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
                                                application=self.application)
 
                         if data:
-                            self.MSG_QUEUE.pair[sock].put(data)
+                            self.pair[sock].put(data)
                             self._impl.modify(fileno, select.EPOLLOUT)
 
                         else:
@@ -339,7 +362,7 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
                     # Writeable Event
                     elif event & select.EPOLLOUT:
                         try:
-                            msg = self.MSG_QUEUE.pair[sock].get_nowait()
+                            msg = self.pair[sock].get_nowait()
 
                             writers = WrapResponse(msg, self.eventManager, sock, self)
                             body = writers.gen_body(prefix="\r\n\r\n")
@@ -361,7 +384,7 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
                     # Close Event
                     elif event & select.EPOLLHUP:
                         if debug:
-                            self.Log.info("Closing event,%d" %fileno)
+                            Log.info("Closing event,%d" %fileno)
 
                         self.eclose(fileno)
 
@@ -369,7 +392,7 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
                         continue
 
         except Exception as e:
-            self.Log.info(e)
+            Log.info(e)
             self._impl.unregister(self.server.fileno())
             self._impl.close()
             self.server.close()
@@ -383,33 +406,56 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
         else:
             self._impl.add_sock(fd, events)
 
-    def split_fd(self, fd):
-        try:
-            return fd.fileno(), fd
-        except AttributeError:
-            return fd, fd
 
     def close(self,sock):
-        assert isinstance(sock,socket.socket)
+        # assert isinstance(sock,socket.socket)
         self._impl.remove_sock(sock)
         sock.close()
-        try:
-            del self.MSG_QUEUE.pair[sock]
-        except (AttributeError,KeyError):
-            pass
+        '''
+        threading.local declare:
+        if the close function is not called from the main-thread, self.MSG_QUEUE.pair will
+        not be existed! because the sub thread and main thread is not have the condition
+        to operate both threading.local variable.
+        so, if EventMaster's sub thread called this method, when calling 
+        >>> self.MSG_QUEUE.pair 
+        that will raise Error like below:
+        `AttributeError: '_thread._local' object has no attribute 'pair'`
+        
+        so, here we can't use local() 
+        '''
+        # TODO
+        if sock in self.pair:
+            self.pair.pop(sock)
+
 
     def eclose(self,fd):
+        '''
+        a collection operators for closing an socket from the poll
+        and the defined variable from this sock.
+        which is only used in epoll looper
+        '''
         assert isinstance(fd,int) and fd>0
         self._impl.unregister(fd)
-        sock = self.MSG_QUEUE.connection.pop(fd)
+        sock = self.connection.pop(fd)
         sock.close()
 
 
     def trigger_handlers(self,kw):
+        '''
+        to generate handlers pairs.
+        find_router will call this to distribute an request handler.
+        '''
         raise NotImplementedError
 
 
     def ssl(self,wrapper):
+        '''
+        To support ssl, you need to make ssl-context, which is used
+        to wrap sockets so that their certificate and private keys are valid
+        on the context wrapper.
+
+        this is an interface for implementing wrapper to ssl-context.
+        '''
         if self.ssl_enable:
             return wrapper.ssl_context()
 

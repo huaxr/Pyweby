@@ -9,11 +9,17 @@ from handle.exc import NoPackageFound
 LOGGER = None
 
 
-def traceback(msg):
+def traceback(msg,type=None):
     _name = os.path.basename(sys._getframe(1).f_code.co_filename)
     _func = sys._getframe(1).f_code.co_name
-    return '  |   '.join([str(msg)[:20],_name,_func])
-
+    line = str(sys._getframe(1).f_lineno)
+    res =  ' |  '.join([str(msg),_name,_func,line])
+    if type == 'error':
+        return '[!] ' + res
+    elif type == 'info':
+        return '[*] ' + res
+    else:
+        return  '[-] ' + res
 
 def set_level(level):
     global LOGGER

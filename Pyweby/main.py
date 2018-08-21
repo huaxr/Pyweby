@@ -1,13 +1,12 @@
 import ssl
+import time
+import os
 
 from handle.request import HttpRequest
 from core.router import  Looper
 from core.config import Configs
-
 from core.concurrent import Executor,asyncpool
-from handle.response import restful
-import time
-import os
+from handle.response import restful,cache_result
 
 class testRouter(HttpRequest):
     def get(self):
@@ -27,24 +26,27 @@ class testRouter2(HttpRequest):
         time.sleep(counts)
         return "sleeper call over, %d" %(counts)
 
-    @restful  # test from restful api
     def get(self):
-        arguments = self.request.get_arguments('key', 'defalut')
-        value = int(arguments)
-        return {'test':'test','test2':[1,2,3,4],'test3':{'xx':value}},200
-
-    def post(self):
-        # test for async concurrent and non-blocking Future
         arguments = self.request.get_arguments('key', 'defalut')
         value = int(arguments)
         result = self.sleeper(value)
         return result, 200
 
+    @restful  # test from restful api
+    def post(self):
+        # test for async concurrent and non-blocking Future
+        arguments = self.request.get_arguments('key', 'defalut')
+        value = int(arguments)
+        return {'test':'test','test2':[1,2,3,4],'test3':{'xx':value}},200
+
 
 class testRouter3(HttpRequest):
+    @restful           # use restful before the cache_result !
+    @cache_result(expiration=60)
     def get(self):
-        # test for redirect
+        time.sleep(5)
         return "Hello World",200
+
 
 class Barrel(Configs.Application):
     cls_test = 'cls test'
@@ -54,7 +56,7 @@ class Barrel(Configs.Application):
                          (r'/test', testRouter3),]
         self.settings = {
             "enable_manager":True,   # if you want get the Future.result and without blocking the server. set it True
-            "ssl_options": {"ssl_enable": True,
+            "ssl_options": {"ssl_enable": 1,
                             "ssl_version": ssl.PROTOCOL_SSLv23,
                             "certfile": os.path.join(os.path.dirname(__file__), "static","server.crt"),
                             "keyfile": os.path.join(os.path.dirname(__file__), "static","server.key")},

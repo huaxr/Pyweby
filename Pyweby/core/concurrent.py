@@ -1,7 +1,9 @@
 import functools
-import types
 
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor,ProcessPoolExecutor
+
+import os
+
 try:
     import asyncio
 except ImportError:
@@ -25,9 +27,26 @@ class Executor(ThreadPoolExecutor):
 
     def __new__(cls, *args, **kwargs):
         if not getattr(cls,'_instance', None):
-            cls._instance = ThreadPoolExecutor(max_workers=10)
+            cls._instance = ThreadPoolExecutor(max_workers=(os.cpu_count() or 1) * 5)
         return cls._instance
 
+
+class Executorp(ProcessPoolExecutor):
+    '''
+    __all__ = (ThreadPoolExecutor,)
+
+    def __getattr__(name):
+        if name == 'ThreadPoolExecutor':
+            from .thread import ThreadPoolExecutor as te
+            ThreadPoolExecutor = te
+            return te
+    '''
+    _instance_ = None
+
+    def __new__(cls, *args, **kwargs):
+        if not getattr(cls,'_instance', None):
+            cls._instance = ProcessPoolExecutor(max_workers=10)
+        return cls._instance
 
 def asyncpool(*args, **kwargs):
 
@@ -67,3 +86,17 @@ def asyncpool(*args, **kwargs):
     return run_on_executor_decorator
 
 
+
+def safe_lock(func):
+    """
+    When concurrent applied . multiprocessing will raise expropriation
+    condition . use this to avoiding the stuation
+    """
+    def lock(self, *args, **kwargs):
+        if self.concurrent:
+            with self._rlock:
+                return func(self, *args, **kwargs)
+        else:
+            return func(self, *args, **kwargs)
+
+    return lock

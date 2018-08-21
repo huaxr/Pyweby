@@ -1,11 +1,10 @@
 import select
-from core.select_select import SelectCycle
+from core.Pooler import SelectCycle
 
 try:
-    from core.select_epoll import EpollCycle
+    from core.Epoller import EpollCycle
 except (ImportError,AttributeError):
     EpollCycle = SelectCycle
-
 
 
 
@@ -80,7 +79,7 @@ class DistributeRouter(Router):
     @classmethod
     def _choosen(cls):
         if hasattr(select, 'epoll'):
-            from core.select_epoll import EpollCycle
+            from core.Epoller import EpollCycle
             return  EpollCycle
         if hasattr(select, "kqueue"):
             # on BSD or Mac
