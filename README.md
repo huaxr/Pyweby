@@ -62,8 +62,10 @@ class testRouter2(HttpRequest):
 
 
 class testRouter3(HttpRequest):
+    @restful           # use restful before the cache_result !
+    @cache_result(expiration=60)
     def get(self):
-        # test for redirect
+        time.sleep(5)
         return "Hello World",200
 
 class Barrel(Configs.Application):
@@ -188,8 +190,13 @@ class testRouter3(HttpRequest):
 
 ### log
 - every request will gererate a log. just like this:
-`[17:02:10] GET		/test		10.74.154.57:62600`
-`[17:02:11] GET		/test		10.74.154.57:62601`
+```
+[17:02:09] GET		/test		10.74.154.57:62597
+[17:02:09] GET		/test		10.74.154.57:62598
+[17:02:10] GET		/test		10.74.154.57:62599
+[17:02:10] GET		/test		10.74.154.57:62600
+[17:02:11] GET		/test		10.74.154.57:62601
+```
 
 
 ### USAGE
