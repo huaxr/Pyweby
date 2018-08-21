@@ -8,8 +8,8 @@ An awesome non-blocking web server achieved by python3, create for surpassing To
 1. redirect 302 now support (using self.request.redirect)
 1. restful api is easily back up(set descriptor @restful on the get or post method)
 1. template rendering html is under ready (support major jinja2 render functionality, the same semanteme like Flask does!)
-1. SSL web enabled internal.
-1. others: log system. malicious request analysis and disinfect and so on..
+1. support SSL communication.
+1. others: log system. cache system , malicious request analysis and disinfect and so on..
 1. enhancing capacity is still a mystery, pay close attention to it [https://github.com/huaxr/Pyweby/]()
 
 
@@ -98,6 +98,99 @@ if __name__ == '__main__':
 
 
 ```
+
+### HttpRequest
+- each interface that provides a web service must inherit from this class, implement its `get`, and `post` methods correspond to the `get` and `post` requests, respectively. 
+```python
+class testRouter(HttpRequest):
+    def get(self):
+        # test for redirect
+        return self.request.redirect("/hello?key=2")
+
+    def post(self):
+        # ignore_cache is a cache enable flag
+        return self.request.render("index.html",tmp=[1,2,3],ignore_cache=False)
+```
+
+
+### Barrel(Configs.Application)
+- this is the Application settings. you can define global functions or set gloabl settings here.
+
+
+
+### concurrent
+- we kown concurrent.future() is a block state. using this will realizing real asynchronous.
+```python
+class testRouter2(HttpRequest):
+    executor = Executor((os.cpu_count() or 1) * 5)
+    @asyncpool(executor=executor)
+    def sleeper(self,counts):
+        time.sleep(counts)
+        return "sleeper call over, %d" %(counts)
+    @restful  # test from restful api
+    def get(self):
+        arguments = self.request.get_arguments('key', 'defalut')
+        value = int(arguments)
+        result = self.sleeper(value)
+        return result, 200
+```
+
+
+
+### redirect (301 or 302 status)
+- this will tell the client to referring the uri server provides.
+```python
+def get(self):
+    return self.request.redirect("/hello?key=2")
+```
+
+
+### Template(render html)
+- rendering Engine is internally installed. just like almost rendering Engine dose, it's lightly implement.
+```python
+def get(self):
+    # ignore_cache is a cache enable flag
+    return self.request.render("index.html",tmp=[1,2,3],ignore_cache=False)
+```
+
+
+### SSL
+- add the `ssl_options` in the Barrel.settings, you can easily swich the ssl_enable flag to  deploy the web listing 443 or 80 port, use https to access the handler.
+```python
+"ssl_options": {"ssl_enable": True,  # support ssl for secure reason
+                "ssl_version": ssl.PROTOCOL_SSLv23,
+                "certfile": os.path.join(os.path.dirname(__file__), "static","server.crt"),
+                "keyfile": os.path.join(os.path.dirname(__file__), "static","server.key")},
+```
+
+### Restful
+- using @restful decorator will return the web page with Content-Type: application/json header.
+```python
+@restful  # test from restful api
+def get(self):
+    arguments = self.request.get_arguments('key', 'defalut')
+    value = int(arguments)
+    return {'test':'test','test2':[1,2,3,4],'test3':{'xx':value}},200
+```
+
+### Cache
+- using @cache_restful decorator will cache the return result in the cache Engine.
+- if you want cache an restful result. please add @restful before the @cache_result.
+(prameter expiration must set int, this means 60 second later , cache will disable. )
+```python
+class testRouter3(HttpRequest):
+    @restful          
+    @cache_result(expiration=60)
+    def get(self):
+        time.sleep(5)
+        return "Hello World",200
+```
+
+### log
+- every request will gererate a log. just like this:
+`[17:02:10] GET		/test		10.74.154.57:62600`
+`[17:02:11] GET		/test		10.74.154.57:62601`
+
 
 ### USAGE
 
