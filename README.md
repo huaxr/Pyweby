@@ -188,6 +188,21 @@ class testRouter3(HttpRequest):
         return "Hello World",200
 ```
 
+### Cookies
+- if you wanna use cookie. please set safe_cookie in the app's settings like this:
+"safe_cookie" : 'YnicJQBLgFAbAaP_nUJTHMA3Eq-G9WpNeREQL-qljLE='
+- use set_cookie and get_cookie from the self.request instance to access the headers.
+- safe options will use crypto to make it security.
+```python
+    def get(self):
+        # name = self.request.get_arguments('name', 'defalut')
+        # self.request.set_cookie({'name':name,'pass':name,'xxx':'xxx'}, expires=66,safe=True)
+        xx = self.request.get_cookie()
+        print("xxx",xx)
+        return 'xx',200
+```
+
+
 ### log
 - every request will gererate a log. just like this:
 ```
