@@ -206,11 +206,10 @@ class testRouter3(HttpRequest):
 ### log
 - every request will gererate a log. just like this:
 ```
-[17:02:09] GET		/test		10.74.154.57:62597
-[17:02:09] GET		/test		10.74.154.57:62598
-[17:02:10] GET		/test		10.74.154.57:62599
-[17:02:10] GET		/test		10.74.154.57:62600
-[17:02:11] GET		/test		10.74.154.57:62601
+[18:57:14] Server https://10.74.154.57:443 started! fd=[368]
+[18:57:20] GET		10.74.154.57		/
+[18:57:20] GET		10.74.154.57		/hello?key=2
+[18:57:38] GET		10.74.154.57		/test?name=pyweby
 ```
 
 
