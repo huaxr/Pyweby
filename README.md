@@ -210,13 +210,17 @@ class testRouter3(HttpRequest):
 "safe_cookie" : 'YnicJQBLgFAbAaP_nUJTHMA3Eq-G9WpNeREQL-qljLE='
 - use set_cookie and get_cookie from the self.request instance to access the headers.
 - safe options will use crypto to make it security.
+ - `set_cookie` Set the encrypted cookies dict .
+ - `get_cookie` Get the decrypted cookie
+ - `clear_cookie` for logout.
+
 ```python
     def get(self):
         # name = self.request.get_arguments('name', 'defalut')
         # self.request.set_cookie({'name':name,'pass':name,'xxx':'xxx'}, expires=66,safe=True)
         xx = self.request.get_cookie()
-        print("xxx",xx)
-        return 'xx',200
+        # self.request.clear_cookie() logout
+        return xx,200
 ```
 
 ### Authentication
