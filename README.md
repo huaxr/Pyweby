@@ -1,5 +1,5 @@
 # Pyweby
-An awesome non-blocking web server achieved by python3, create for surpassing Tornado and Django!
+Very Sexy Web Framework. Savvy?
 
 
 ### Futures
