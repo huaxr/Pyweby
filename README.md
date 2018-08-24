@@ -32,7 +32,7 @@ from handle.response import restful
 import time
 import os
 
-class testRouter(HttpRequest):
+class testRouter1(HttpRequest):
     def get(self):
         # test for redirect
         return self.request.redirect("/hello?key=2")
@@ -71,12 +71,26 @@ class testRouter3(HttpRequest):
         time.sleep(5)
         return "Hello World",200
 
+    def post(self):
+        name = self.request.get_arguments('name', 'defalut')
+        self.request.set_cookie({'name':name,'pass':name,'xxx':'xxx','login':True}, expires=66,safe=True)
+        xx = self.request.get_cookie()
+        return name,200
+
+
+@login_require
+class testRouter4(HttpRequest):
+    def get(self):
+        name = self.request.get_arguments('name', 'defalut')
+        return name,200
+        
 class Barrel(Configs.Application):
     cls_test = 'cls test'
     def __init__(self):
-        self.handlers = [(r'/hello',testRouter2),
-                         (r'/', testRouter),
-                         (r'/test', testRouter3),]
+        self.handlers = [(r'/1',testRouter1),
+                         (r'/2', testRouter2),
+                         (r'/3', testRouter3),
+                         (r'/4', testRouter4),]
         self.settings = {
             "enable_manager":True,   # if you want get the Future.result and without blocking the server. set it True
             "ssl_options": {"ssl_enable": True,  # support ssl for secure reason
