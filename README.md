@@ -13,6 +13,8 @@ An awesome non-blocking web server achieved by python3, create for surpassing To
 1. others: log system. cache system , malicious request analysis and disinfect and so on..
 1. enhancing capacity is still a mystery, pay close attention to it [https://github.com/huaxr/Pyweby/]()
 
+- Currently in window+python3.6 environment test development
+
 
 ### MAIN CODE
 ##### easy example code to show it's power! 
