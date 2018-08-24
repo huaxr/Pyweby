@@ -1,8 +1,7 @@
 #coding:utf-8
 import ssl
-
 try:
-    import queue as Queue #Python3
+    import queue as Queue
 except ModuleNotFoundError:
     import Queue
 

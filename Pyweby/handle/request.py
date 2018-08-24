@@ -3,17 +3,82 @@ import time
 import re
 import os
 import threading
+import six
+from datetime import datetime,timedelta
+from .exc import MethodNotAllowedException,ApplicationError
+from util.Engines import BaseEngine
+from util.logger import init_loger,traceback
 
 try:
     from urllib.parse import unquote
 except ImportError:
     from urllib import unquote
 
-from .exc import MethodNotAllowedException
-from util.Engines import BaseEngine
-from util.logger import init_loger,traceback
 
 console = Log = init_loger(__name__)
+
+
+class BaseCookie(type):
+        pass
+
+
+class Header(object):
+    def __init__(self):
+        raise NotImplementedError
+
+
+
+class MetaRouter(type):
+    '''
+    we abstract router lookup into this metaclass, making the code logic more compact,
+    making request, response communication more intuitive. isn't it?
+    '''
+    def __new__(cls, name, bases, attrs):
+
+        def find_handler(self):
+            # if login_require setting up. checking the router and judge whether cookie is legitimate.
+            router = self.wrapper.find_router()
+            # if hasattr(router,'login_require'):
+            #     print(dir(router))
+            return router
+
+        def find_router(self):
+            '''
+            get_first_line has been returned by decorator,
+            so it's changed to be a property value
+            :return:
+            '''
+            try:
+                method, path, query, version = self.get_first_line
+                sock_from, sock_port = self.sock.getpeername()
+                # print the request log . query may be None
+                if None in (method, path, version):
+                    return WrapRequest.INTERNAL_SERVER_ERROR
+
+                _log = '\t\t'.join([method, sock_from, path + '?' + query if query else path])
+                console.info(_log)
+
+                router = self.handlers.get(path, WrapRequest.DEFAULT_INDEX)
+
+            except MethodNotAllowedException:
+
+                router = WrapRequest.METHOD_NOT_ALLOWED
+
+            except Exception as e:
+                Log.info(traceback(e))
+                router = WrapRequest.INTERNAL_SERVER_ERROR
+
+            return router
+
+
+        if name == 'HttpResponse':
+            attrs['find_handler'] = find_handler
+        elif name == 'HttpRequest':
+            attrs['find_router'] = find_router
+        else:
+            pass
+        return type.__new__(cls, name, bases, attrs)
+
 
 class method_check(object):
     METHODS = ['GET', 'POST', 'OPTIONS', 'PUT', 'DELETE']
@@ -257,6 +322,7 @@ class TemplateEngine(BaseEngine):
 ModuleEngine = TemplateEngine
 
 
+@six.add_metaclass(MetaRouter)
 class HttpRequest(object):
 
     def __init__(self,headers=None,handlers=dict,sock =None):
@@ -265,7 +331,6 @@ class HttpRequest(object):
         self.sock = sock
 
         self._starttime = time.time()
-
         # added attribute
         self.request = None
         self.app = None
@@ -273,31 +338,6 @@ class HttpRequest(object):
     def __repr__(self):
         if self:
             return "{name}".format(name=self.__class__)
-
-    def find_router(self):
-        '''
-        get_first_line has been returned by decorator, so it's changed to be a property value
-        :return:
-        '''
-        try:
-            method, path, query, version = self.get_first_line
-            sock_from, sock_port = self.sock.getpeername()
-
-            # print the request log .
-            _log = '\t\t'.join([method,path,':'.join([sock_from,str(sock_port)])])
-            console.info(_log)
-
-            router = self.handlers.get(path,WrapRequest.DEFAULT_INDEX)
-
-        except MethodNotAllowedException:
-
-            router = WrapRequest.METHOD_NOT_ALLOWED
-
-        except Exception:
-
-            router = WrapRequest.INTERNAL_SERVER_ERROR
-
-        return router
 
 
     def get_first_line(self):
@@ -331,6 +371,74 @@ class HttpRequest(object):
 
 
 
+    def add_cookie(self, *args, **kwargs):
+        tmp = args[0]
+
+        expires = kwargs.pop('expires', None)
+        max_age = kwargs.pop('max_age', None)
+        path = kwargs.pop('path', None)
+        domain = kwargs.pop('domain', None)
+        secure = kwargs.pop('secure', None)
+        httponly = kwargs.pop('httponly', None)
+
+        max_age = self.transe_format(max_age,type="max_age")
+        expires = self.transe_format(expires,type="expires")
+
+        if path is not None:
+            path = path.encode('utf-8')
+
+        support = {
+            # Expires is used to set the expiration time of cookie,
+            # and time should comply with HTTP-date specification.
+            # Date: <day-name>, <day> <month> <year> <hour>:<minute>:<second> GMT
+            'Expires': expires,
+            # Failure time, in seconds, is not supported by low-level browsers,
+            # and Max-Age priority is higher than Expires if both support
+            'Max-Age': max_age,
+            # The Secure property says that if a cookie is set to Secure = true,
+            # the cookie can only be sent to the server using the HTTPS protocol,
+            # which is not sent using the HTTP protocol.
+            'Secure': secure,
+            # The cookie setting HttpOnly=true can not be acquired by JS,
+            #  and can not play the content of cookie with document.cookie.
+            'HttpOnly': httponly,
+            'Path': path,
+            'Domain': domain}
+
+        for K, V in support.items():
+            if V:
+                tmp.append('{key}={value}; '.format(key=K, value=V))
+        cookie_jar = ''.join(tmp)
+        self.__cookie_jar = cookie_jar
+
+
+    def transe_format(self,msg,type=''):
+        raise NotImplementedError
+
+
+class Bad_Request(HttpRequest):
+    def get(self):
+        return {'400':'Bad Request'},400
+
+    def post(self):
+        return {'400': 'Bad Request'},400
+
+class Unauthorized(HttpRequest):
+    def get(self):
+        return {'401':'Unauthorized User'},401
+
+    def post(self):
+        return {'401': 'Unauthorized User'},401
+
+
+class Forbidden(HttpRequest):
+    def get(self):
+        return {'403':'Forbidden'},403
+
+    def post(self):
+        return {'403': 'Forbidden'}, 403
+
+
 class PAGE_NOT_FOUNT(HttpRequest):
     def get(self):
         return {'404':'page not found'},404
@@ -341,17 +449,19 @@ class PAGE_NOT_FOUNT(HttpRequest):
 
 class METHOD_NOT_ALLOWED(HttpRequest):
     def get(self):
-        return {'400':'method not allowed'},400
+        return {'405':'method not allowed'},405
 
     def post(self):
-        return {'400': 'method not allowed'}, 400
+        return {'405': 'method not allowed'}, 405
+
 
 class INTERNAL_SERVER_ERROR(HttpRequest):
     def get(self):
-        return {'400':'internal server error'},500
+        return {'500':'internal server error'},500
 
     def post(self):
-        return {'400': 'internal server error'}, 500
+        return {'500': 'internal server error'}, 500
+
 
 class DangerousRequest(HttpRequest):
 
@@ -367,6 +477,33 @@ class DangerousRequest(HttpRequest):
                     tmp.remove(i)
             return dict(tmp)
 
+    def transe_format(self,date,type=None):
+        '''
+        transform date from cookie's kwargs.
+        the date may be expires, max-age . GMT only.
+        '''
+        if date is None:
+            return
+
+        if type == 'expires':
+            if isinstance(date, (int,float)):
+                expiration = datetime.now() + timedelta(minutes=date)
+                expire = expiration.strftime("%a, %d-%b-%Y %H:%M:%S GMT")
+                return expire
+
+            elif isinstance(date, (datetime,timedelta)):
+                return date.strftime("%a, %d-%b-%Y %H:%M:%S GMT")
+
+            else:
+                raise ValueError("unexpected date format.")
+
+        elif type == 'max_age':
+            assert isinstance(date,int)
+            return int(date)
+
+        else:
+            return date
+
 
 class WrapRequest(DangerousRequest):
 
@@ -374,7 +511,7 @@ class WrapRequest(DangerousRequest):
     DEFAULT_INDEX = PAGE_NOT_FOUNT
     METHOD_NOT_ALLOWED = METHOD_NOT_ALLOWED
     INTERNAL_SERVER_ERROR = INTERNAL_SERVER_ERROR
-    SAFE_LOCKER = threading.Lock()
+    SAFE_LOCKER = threading.RLock()
 
     def __init__(self,request_data,callback,handlers=None,application=None,sock=None):
         self.request_data = request_data
@@ -390,8 +527,14 @@ class WrapRequest(DangerousRequest):
         self.headers = self.wrap_headers(self.request_data)
         self.router = None
 
+        self.response_header = {}
+        self._status_code = 0
+
         super(DangerousRequest,self).__init__(headers=self.headers,handlers=self.handlers,sock = sock)
 
+    def add_cookie_attribute(self,*args,**kwargs):
+
+        super(WrapRequest,self).add_cookie(*args,**kwargs)
 
     @staticmethod
     def strip_result(fn):
@@ -425,12 +568,13 @@ class WrapRequest(DangerousRequest):
                 headers = bytes_header
                 assert not isinstance(headers, bytes),"The HTTP Request Protocol Error, SSL is disable now"
 
-            for line in self.regexp.split(headers):
+            _headers = self.regexp.split(headers)
+            tmp[u'first_line'] = _headers[0]
+            _headers.remove(_headers[0])
+
+            for line in _headers:
                 if line:
-                    if ':' not in line:
-                        #bug report, the uri can not contains ':'
-                        tmp[u'first_line'] = line
-                    else:
+                    if line.__contains__(':'):
                         attribute , parameter = line.split(':',1)
                         tmp[attribute] = parameter.strip()
                 else:
@@ -479,7 +623,7 @@ class WrapRequest(DangerousRequest):
         except ValueError:
             return (method,uri,None,version)
 
-    def get_attribute(self,attr):
+    def get_header_attribute(self,attr):
         return self.headers.get(attr,None)
 
 
@@ -513,13 +657,25 @@ class WrapRequest(DangerousRequest):
 
     def set_status(self,code):
         self._status_code = code
+        self.__status__ = 0
+
 
     def set_header(self,k,v):
-        self.response_header = {k:v}
+        # replace if key already exists is not right.
+        # http/https response header can have duplicate keys. e.g. Set-Cookie
+        if k in self.response_header:
+            self.response_header[k] = self.response_header[k] + ' ' +v
+        else:
+            self.response_header[k] = v
+            self.__header__ = 0
 
 
     def render(self,path,**kwargs):
-
+        '''
+        render provides an interface to rendering Python-Object to html element.
+        it's highly/extremely looks like a imitation of jinja2. it's extendable
+        and you can use the code make it perfect.
+        '''
         template_path = self.application.settings.get('template_path','/')
         path = os.path.join(template_path,path)
         with self.SAFE_LOCKER:
@@ -527,3 +683,67 @@ class WrapRequest(DangerousRequest):
                 m_m = ModuleEngine(fd.read(),template_dir=template_path,file_path = path)
                 res = m_m.render(kwargs)
                 return res,200
+
+
+    def get_cookie(self,key=None):
+        '''
+        get the cookie from the header's Cookies: 'xxx'
+        if key provides, then return the specific value of it
+        :param key: key in cookies set.
+        '''
+        cookies = self.get_header_attribute('Cookie')
+        if cookies and "_session" in cookies:
+            # safe encrypt cookies
+            safe_cookie_handler = self.application.settings.get('safe_cookie_handler', None)
+            if not safe_cookie_handler:
+                raise ApplicationError("Error when application initilize")
+            sess = cookies.split('=',1)[1]
+            try:
+                res =  safe_cookie_handler.decrypt(sess.encode())
+            except Exception:
+                return
+            temp  = res.decode()[:-2].split('&')
+            tmp = {}
+            for item in temp:
+                i,j = item.split('|')
+                tmp[i] = j
+            if key:
+                return tmp.get(key,None)
+            return tmp
+        else:
+            # plain cookie
+            return cookies
+
+
+    def set_cookie(self, cookies_dict, max_age=None, expires=None,
+                   path=None, domain=None, secure=False, httponly=False,
+                   safe=True):
+        '''
+        :param safe: for secure reason, when secure is not setted.
+        use the encryption session in place of plain cookies.
+        '''
+        if not cookies_dict and not isinstance(cookies_dict,dict):
+            return
+
+        if safe:
+            # TODO : this is safe session declare. you should define a cryto for that.
+            safe_cookie_handler = self.application.settings.get('safe_cookie_handler',None)
+            if not safe_cookie_handler:
+                raise ApplicationError("Error when application initilize")
+            session = ''.join(["{key}|{value}&".format(key=key, value=value)
+                            for key, value in cookies_dict.items()])[:-1] + '; '
+            # encrypt data using third module
+            token = safe_cookie_handler.encrypt(session.encode())
+            tmp = ["_session="+token.decode()+'; ']
+
+        else:
+
+            tmp = ["{key}={value}; ".format(key=key, value=value)
+                   for key, value in cookies_dict.items()]
+
+        self.add_cookie_attribute(tmp,max_age=max_age, expires=expires,
+                   path=path, domain=domain, secure=secure, httponly=httponly)
+
+        if hasattr(self,'_HttpRequest__cookie_jar'):
+            self.set_header("Set-Cookie", self._HttpRequest__cookie_jar)
+

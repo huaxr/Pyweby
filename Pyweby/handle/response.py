@@ -5,18 +5,21 @@ import sys
 import threading
 import os
 import copy
-import logging
+import six
 from functools import wraps
 from collections import OrderedDict
+from .request import MetaRouter
 
-from handle.request import HttpRequest
+from handle.request import HttpRequest,Unauthorized
 from handle.exc import (StatusError,MethodNotAllowedException,
                         EventManagerError,NoHandlingError,JsonPraseError)
 from concurrent.futures import _base
 from util.Engines import EventFuture,Eventer
-from util.logger import Logger
+from util.logger import Logger,traceback
 from core.concurrent import safe_lock
 
+
+Log = Logger(logger_name=__name__)
 
 def _cache_result(**kwargs):
     '''
@@ -173,6 +176,16 @@ class restful(object):
         return tmp
 
 
+def check_param(fn):
+    def wrapper(self,router,method):
+        #TODO, later usage add methods.
+        if method not in ['get','post']:
+            raise ValueError('%s is not allowed method' %method)
+        return fn(self,router,method)
+    return wrapper
+
+
+@six.add_metaclass(MetaRouter)
 class HttpResponse(object):
 
     def add_future_result(self,*args,**kwargs):
@@ -219,6 +232,9 @@ class DangerResponse(HttpResponse):
         raise NotImplementedError
 
 
+    def transe_format(self,arg):
+        raise NotImplementedError
+
 class WrapResponse(DangerResponse):
 
     def __init__(self,wrapper_request,event_manager=None,sock=None,PollCycle=None):
@@ -242,26 +258,45 @@ class WrapResponse(DangerResponse):
         self.msg_pair = {200: 'OK',
                          301: 'Permanently Moved',
                          302: 'Moved Temporarily',
-                         400: 'METHOD NOT ALLOWED',
-                         404: 'NOT FOUND',
-                         500: 'SERVER ERROR'}
+                         400: 'Bad Request',
+                         401: 'Unauthorized',
+                         403: 'Forbidden',
+                         404: 'Not Found',
+                         405: 'Method Not Allowed',
+                         500: 'Internal Server Error',
+                         502: 'Bad Gateway'}
 
         self.headers = {}
-
-        self.Log = Logger(logger_name=__name__)
-        self.Log.setLevel(logging.INFO)
-
 
         super(WrapResponse,self).__init__()
 
     def __repr__(self):
         return repr('pyweby')
 
+
+    @check_param
+    def auth_check(self,router,method):
+        '''
+        checking whether cookie has passed authentication or declassified content
+        is correct.
+        :param router: the router find_handler returns
+        :param method: support `get`,`post` , later usage is limit now.
+        :return:
+        '''
+        if hasattr(router, 'login_require'):
+            cookies = router.request.get_cookie()
+            if cookies.get('login', False) == 'True':
+                nexter = getattr(router, method)
+            else:
+                r = Unauthorized()
+                nexter = getattr(r, method)
+        else:
+            nexter = getattr(router, method)
+
+        return nexter
+
     def get_writer(self):
         return self.wrapper.conn_obj
-
-    def find_handler(self):
-        return self.wrapper.find_router()
 
 
     def switch_method(self,method=None):
@@ -271,10 +306,6 @@ class WrapResponse(DangerResponse):
         :return:
         '''
         nexter = (None,None)   # for staring the coroutine
-
-        def callback(*args, **kwargs):
-            return args, kwargs
-
         while True:
             yield nexter
 
@@ -283,16 +314,13 @@ class WrapResponse(DangerResponse):
                 dispose GET method
                 '''
                 router = self.find_handler()()
-
                 #router is response , we add the request attribute to the self instance
 
                 # 1.the WrapperRequest object
                 router.request = self.wrapper
                 # 2. the global application instance binding here,this is an instance already
                 router.app = self.wrapper.application
-
-                nexter = getattr(router,'get')
-
+                nexter = self.auth_check(router,'get')
 
             elif method.upper() == 'POST':
                 '''
@@ -301,7 +329,7 @@ class WrapResponse(DangerResponse):
                 router = self.find_handler()()
                 router.request = self.wrapper
                 router.app = self.wrapper.application
-                nexter = getattr(router, 'post')
+                nexter = self.auth_check(router, 'post')
 
             else:
                 '''
@@ -309,8 +337,8 @@ class WrapResponse(DangerResponse):
                 robust web server.
                 '''
                 router = self.find_handler()()
-                result = getattr(router, 'get')
-                nexter = result
+                nexter = self.auth_check(router, '')
+
 
     def discern_result(self,time_consuming_op=None):
         '''
@@ -340,7 +368,7 @@ class WrapResponse(DangerResponse):
                     assert isinstance(status,int) and  status in self.msg_pair.keys(), StatusError(status=status)
 
                 elif isinstance(result,types.FunctionType):
-                    raise NoHandlingError()
+                    body,status = result()
 
                 else:
                     raise NoHandlingError('no handlering')
@@ -352,6 +380,7 @@ class WrapResponse(DangerResponse):
                 return json.dumps(body), status
             else:
                 raise StopIteration("Error result at `discern_result`")
+
 
     def gen_headers(self,version, status, msg, add_header=None):
         tmp = []
@@ -367,10 +396,9 @@ class WrapResponse(DangerResponse):
                 if k not in self.headers.keys():
                     self.headers[k] = b
 
-        if hasattr(self.wrapper,'_status_code') or hasattr(self.wrapper,'response_header'):
-
+        if hasattr(self.wrapper,'__header__'):
             self.headers.update(self.wrapper.response_header)
-            status_code = self.wrapper._status_code
+            status_code = self.wrapper._status_code or 200
             self.headers['first_line'] = "{version} {status} {msg}".format(
                 version=version,status=status_code or status, msg=self.msg_pair[status_code])
 
@@ -381,6 +409,7 @@ class WrapResponse(DangerResponse):
             tmp.append(': '.join(pair))
 
         header = '\r\n'.join(str(s) for s in tmp)
+        # print(header)
         return header + "\r\n\r\n"
 
 
@@ -390,12 +419,17 @@ class WrapResponse(DangerResponse):
         :param prefix: this prefix to tail whether the response package is integrity
         '''
         try:
-
             tmp = self.discern_result(time_consuming_op=self.switch_method(self.method))
-
+            # <bound method testRouter4.get of <class '__main__.testRouter4'>>
+            # we add AuthHandler . this means tmp may not be MethodType, rather than
+            # AuthHandler. <handle.auth.AuthHandler object at 0x028353B0>
             if isinstance(tmp, types.MethodType):
                 # Do not try execute tmp() twice.
-                X_X_X = tmp()
+                try:
+                    X_X_X = tmp()
+                except Exception as e:
+                    Log.critical(traceback(e))
+                    return self.not_future_body(500, 'internal server error(program error)', prefix=prefix)
 
                 # when no result return.
                 if  X_X_X is None:
@@ -407,7 +441,7 @@ class WrapResponse(DangerResponse):
 
             # when using @restful
             elif isinstance(tmp, dict):
-                body ,status = tmp, '_'
+                body ,status = tmp, tmp.get('status',502)
 
             # when using @cache_result
             elif isinstance(tmp, CacheEngine):
@@ -417,7 +451,7 @@ class WrapResponse(DangerResponse):
                 raise NoHandlingError
 
         except Exception as e:
-            self.Log.warning(e.with_traceback())
+            Log.warning(traceback(e))
             return self.not_future_body(500, 'internal server error', prefix=prefix)
 
         """
@@ -434,6 +468,7 @@ class WrapResponse(DangerResponse):
         solution: using Observer-Model to delegate the Future and current socket
         to the EventMaster
         """
+
         if isinstance(body,_base.Future):
             # WE DON'T NEED if_need_result FLAG ANYMORE,CAUSE WE CAN JUDGE THE BRANCH TO GO BY
             # distinguish whether body is Future or (str,bytes...)
@@ -441,7 +476,7 @@ class WrapResponse(DangerResponse):
 
         elif isinstance(body,dict):
 
-            return self.restful_body(body,200)
+            return self.restful_body(body,status)
 
         else:
             return self.not_future_body(status, body, prefix)
@@ -483,10 +518,15 @@ class WrapResponse(DangerResponse):
     def set_header(self,k,v):
         return {k:v}
 
-
     def restful_body(self,body,status):
+        '''
+        make header Content-Type":"application/json",
+        the browser will parse it perfect.
+        '''
         return self.gen_headers(self.version,
                                 status,
                                 self.msg_pair.get(status,200),
                                 add_header=self.set_header("Content-Type","application/json")) + \
                                 str(json.dumps(body))
+
+

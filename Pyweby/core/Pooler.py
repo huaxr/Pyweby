@@ -1,8 +1,8 @@
 import select
 from .Looper import PollCycle
 from .config import Configs
-from util.logger import Logger,traceback
-import logging
+from util.logger import Logger
+from cryptography.fernet import Fernet as Cipher
 
 Log = Logger(logger_name=__name__)
 
@@ -79,6 +79,11 @@ class SelectCycle(PollCycle,Configs.BarrelCheck):
             # after wrapper_barrel called, self is bind application instance
             # which is the class user defined inherit from Configs.Application
             kwargs.update(self.application.settings)
+
+            safe_cookie = self.application.settings.get('safe_cookie')
+            if not safe_cookie:
+                raise ValueError('safe_cookie must be set in Application\'s setting')
+            self.application.settings['safe_cookie_handler'] = Cipher(safe_cookie)
 
         kwargs.update({'__impl':_select()})
 

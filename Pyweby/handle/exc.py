@@ -38,3 +38,8 @@ class JsonPraseError(Exception):
 class ProtocolError(Exception):
     def __init__(self, msg=None):
         super(ProtocolError, self).__init__(msg or 'The HTTP Request Protocol Error')
+
+
+class ApplicationError(Exception):
+    def __init__(self, msg=None):
+        super(ApplicationError, self).__init__(msg or 'Application Error')
