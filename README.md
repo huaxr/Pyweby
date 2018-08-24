@@ -9,6 +9,7 @@ An awesome non-blocking web server achieved by python3, create for surpassing To
 1. restful api is easily back up(set descriptor @restful on the get or post method)
 1. template rendering html is under ready (support major jinja2 render functionality, the same semanteme like Flask does!)
 1. support SSL communication.
+1. cookies and Authentication(@login_require) 
 1. others: log system. cache system , malicious request analysis and disinfect and so on..
 1. enhancing capacity is still a mystery, pay close attention to it [https://github.com/huaxr/Pyweby/]()
 
@@ -200,6 +201,19 @@ class testRouter3(HttpRequest):
         xx = self.request.get_cookie()
         print("xxx",xx)
         return 'xx',200
+```
+
+### Authentication
+- use this decorator @login_require to declare this RequestHandler's get and post method is need authentication.
+- it also means that specific URI will accept authentication conditions.
+- login_require will check the cookie if a legitimate one and response 401 or 200 status to browser.
+
+```python
+@login_require
+class testRouter4(HttpRequest):
+    def get(self):
+        name = self.request.get_arguments('name', 'defalut')
+        return name,200
 ```
 
 
