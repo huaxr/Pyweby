@@ -1,7 +1,7 @@
 import select
 from .Looper import PollCycle
 from .config import Configs
-from util.logger import Logger
+from util.logger import Logger,traceback
 from cryptography.fernet import Fernet as Cipher
 
 Log = Logger(logger_name=__name__)
@@ -27,7 +27,8 @@ class _select(object):
         # you can try `print(self.read_fds, self.write_fds, self.error_fds)`
         # to find the reason. (cause when sock close, sock.fd = -1)
             readable, writeable, exceptions = select.select(self.read_fds, self.write_fds, self.error_fds, timeout)
-        except (ValueError,OSError):
+        except (ValueError,OSError,select.error) as e:
+            Log.critical(traceback(e))
             return []
 
         events = {}

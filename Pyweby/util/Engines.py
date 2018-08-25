@@ -4,6 +4,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 import re
 
+import select
+
 try:
     from Queue import Queue, Empty
 except ImportError:
@@ -126,6 +128,7 @@ class EventManager(Switcher):
         self._active = False
         # the thread for handling the events, witch generate from EventManager object
         self._thread = Thread(target = self._run_events)
+        self.__EPOLL = hasattr(select,'epoll')
 
         '''
         The __handlers here is a dict() that stores the 
@@ -169,7 +172,10 @@ class EventManager(Switcher):
             Log.info(traceback(e))
 
         finally:
-            event.PollCycle.close(event.sock)
+            if self.__EPOLL:
+                event.PollCycle.close(event.sock.fileno())
+            else:
+                event.PollCycle.close(event.sock)
 
 
     def _EventProcess(self, event):

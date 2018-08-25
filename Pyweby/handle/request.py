@@ -17,6 +17,7 @@ try:
 except ImportError:
     from urllib import unquote
 from util.ormEngine import Session
+from util._compat import STRING
 
 console = Log = init_loger(__name__)
 
@@ -655,7 +656,7 @@ class WrapRequest(DangerousRequest):
     @method_check
     def get_first_line(self,callback=None):
         start_line = self.headers['first_line']
-        assert isinstance(start_line,str),"[#] You may use `IE` browser, it's deny for that."
+        assert isinstance(start_line,STRING),"[#] You may use `IE` browser, it's deny for that."
         method , uri, version = start_line.split(' ')
         try:
             path, query = uri.split('?',1)

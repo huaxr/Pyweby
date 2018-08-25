@@ -2,7 +2,7 @@
 import ssl
 try:
     import queue as Queue
-except ModuleNotFoundError:
+except ImportError:
     import Queue
 
 import threading
@@ -67,7 +67,7 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
         assert self._impl is not None
 
         self.timeout = kwargs.get('timeout',3600)
-        self._thread_ident = threading.get_ident()
+        # self._thread_ident = threading.get_ident()
 
         # the handlers of uri-obj pair . e.g. [('/',MainHandler),]
         # there is two ways to deliver the parameter
@@ -211,7 +211,6 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
                                 # Due to active or passive reasons, socket shutdown is not processed in time,
                                 # and it is necessary to determine whether socket is closed.
                                 data = sock.recv(6000)
-
                             else:
                                 continue
                         except socket.error as e:
@@ -269,7 +268,6 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
                         # EventManager sub threads Looping.
                         writers = WrapResponse(msg,self.eventManager,sock,self)
                         body = writers.gen_body(prefix="\r\n\r\n")
-
                         if body:
                             try:
                                 bodys = body.encode()
@@ -314,88 +312,111 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
         6. Repeat steps 3 through 5 until finished
         7. Destroy the epoll object
         '''
-        try:
-            while 1:
-                events = self._impl.poll(timeout)
+        while 1:
+            events = self._impl.poll(timeout)
 
-                if not events:
-                    Log.info("Epoll timeout, continue roll poling.")
-                    continue
+            if not events:
+                Log.info("Epoll timeout, continue roll poling.")
+                continue
 
-                if debug:
-                    Log.info("there are %d events prepare to handling." %len(events))
+            if debug:
+                Log.info("there are %d events prepare to handling." %len(events))
 
-                for fileno, event in events:
-                    sock = self.connection[fileno]
+            for fileno, event in events:
+                # If active socket is the current server socket, represent that is a new connection.
+                # self.server if registered by listen method
+                if fileno == self.server.fileno():
+                    conn, addr = self.server.accept()
 
-                    # If active socket is the current server socket, represent that is a new connection.
-                    # self.server if registered by listen method
-                    if fileno == self.server.fileno():
-                        conn, addr = self.server.accept()
-                        conn.setblocking(0)
-                        # Register new connection fileno to read event collection
+                    try:
+                        with SSLSocket(self.context, conn, self.certfile, self.keyfile) as ssl_wrapper:
+                            conn = self.ssl(ssl_wrapper)
+                            conn.setblocking(0)
 
-                        self._impl.register(conn.fileno(), select.EPOLLIN)
-                        self.connection[conn.fileno()] = conn
-                        self.pair[conn] = Queue.Queue()
-
-                    # Readable Rvent
-                    elif event & select.EPOLLIN:
-
-                        try:
-                            data = sock.recv(60000)
-                        except Exception as e:
-                            Log.info(e)
-                            self.eclose(fileno)
-
-                        if self.application:
-                            data = WrapRequest(data,lambda x:dict(x),handlers=self.handlers,
-                                               application=self.application)
-
-                        if data:
-                            self.pair[sock].put(data)
-                            self._impl.modify(fileno, select.EPOLLOUT)
-
-                        else:
-                            self.eclose(fileno)
-
-                    # Writeable Event
-                    elif event & select.EPOLLOUT:
-                        try:
-                            msg = self.pair[sock].get_nowait()
-
-                            writers = WrapResponse(msg, self.eventManager, sock, self)
-                            body = writers.gen_body(prefix="\r\n\r\n")
-
-                        except Queue.Empty:
-                            self._impl.modify(fileno, select.EPOLLIN)
-                        else:
-                            if body:
-                                try:
-                                    bodys = body.encode()
-                                except Exception:
-                                    bodys = body
-                                finally:
-                                    sock.send(bodys)
-                                    self.close(sock)
-                            else:
-                                self.eclose(fileno)
-
-                    # Close Event
-                    elif event & select.EPOLLHUP:
-                        if debug:
-                            Log.info("Closing event,%d" %fileno)
-
-                        self.eclose(fileno)
-
-                    else:
+                    except ssl.SSLError as e:
+                        Log.info(traceback(e))
+                        self.close(conn)
                         continue
 
-        except Exception as e:
-            Log.info(e)
-            self._impl.unregister(self.server.fileno())
-            self._impl.close()
-            self.server.close()
+                    except OSError as e2:
+                        Log.info(traceback(e2))
+                        self.close(conn)
+                        continue
+
+                    # Register new connection fileno to read event collection
+
+                    self._impl.register(conn.fileno(), select.EPOLLIN)
+                    self.connection[conn.fileno()] = conn
+                    self.pair[conn.fileno()] = Queue.Queue()
+
+                # Readable Rvent
+                # select.EPOLLIN == 1, if event =1, than & operation will return 1.
+                # trigger the event handler.
+                elif event & select.EPOLLIN:
+                    sock = self.connection.get(fileno,None)
+                    if sock is None or sock.fileno() == -1:
+                        continue
+                    try:
+                        data = sock.recv(6000)
+                    except Exception as e:
+                        Log.info(traceback(e))
+                        self.eclose(fileno)
+                        continue
+                    # now on wrapper the request
+                    data = WrapRequest(data,lambda x:dict(x),handlers=self.handlers,
+                                           application=self.application,sock=sock)
+
+                    if data:
+                        if fileno in self.pair:
+                            # manually modify socket status in epoll.
+                            # this is the core epoll IO mechanism.
+                            self.pair[fileno].put(data)
+                            self._impl.modify(fileno, select.EPOLLOUT)
+                        else:
+                            # that's means some error happens and eclose
+                            # called but not notify yet.
+                            continue
+
+                    else:
+                        self.eclose(fileno)
+
+                # Writeable Event
+                elif event & select.EPOLLOUT:
+                    sock = self.connection.get(fileno, None)
+                    if sock is None or sock.fileno() == -1:
+                        continue
+                    try:
+                        if fileno in self.pair:
+                            msg = self.pair[fileno].get_nowait()
+                        else:
+                            continue
+
+                    except Queue.Empty:
+                        # core reason, savvy?
+                        self._impl.modify(fileno, select.EPOLLIN)
+                    else:
+                        writers = WrapResponse(msg, self.eventManager, sock, self)
+                        body = writers.gen_body(prefix="\r\n\r\n")
+                        if body:
+                            try:
+                                bodys = body.encode()
+                            except Exception:
+                                bodys = body
+
+                            sock.send(bodys)
+                            self.eclose(fileno)
+                        else:
+                            continue
+
+                # Close Event
+                elif event & select.EPOLLHUP:
+                    if debug:
+                        Log.info("Closing event,%d" %fileno)
+
+                    self.eclose(fileno)
+
+                else:
+                    continue
 
     def add_handler(self, fd, events):
         '''
@@ -434,10 +455,13 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
         and the defined variable from this sock.
         which is only used in epoll looper
         '''
-        assert isinstance(fd,int) and fd>0
-        self._impl.unregister(fd)
-        sock = self.connection.pop(fd)
-        sock.close()
+        try:
+            self._impl.unregister(fd)
+            sock = self.connection.pop(fd)
+            sock.close()
+            self.pair.pop(fd)
+        except Exception:
+            pass
 
 
     def trigger_handlers(self,kw):

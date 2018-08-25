@@ -4,9 +4,10 @@ import os
 from handle.request import HttpRequest
 from core.router import  Looper
 from core.config import Configs
-from core.concurrent import Executor,asyncpool
+from core._concurrent import Executor,asyncpool
 from handle.response import restful,cache_result
 from handle.auth import login_require
+from util._compat import COUNT
 
 class testRouter(HttpRequest):
     def post(self):
@@ -19,7 +20,7 @@ class testRouter(HttpRequest):
 
 
 class testRouter2(HttpRequest):
-    executor = Executor((os.cpu_count() or 1) * 5)
+    executor = Executor(COUNT)
 
     @asyncpool(executor=executor)
     def sleeper(self,counts):
@@ -34,10 +35,6 @@ class testRouter2(HttpRequest):
 
     @restful  # test from restful api
     def post(self):
-        # test for async concurrent and non-blocking Future
-        # arguments = self.request.get_arguments('key', 'defalut')
-        # value = int(arguments)
-        # return {'test':'test','test2':[1,2,3,4],'test3':{'xx':value}},200
         return self.request.form.lname   # form support
 
 
@@ -81,7 +78,8 @@ class Barrel(Configs.Application):
                          (r'/5', testRouter5),]
         self.settings = {
             "enable_manager":True,   # if you want get the Future.result and without blocking the server. set it True
-            "ssl_options": {"ssl_enable": 0,
+            "ssl_options": {"ssl_enable": 1,
+                            #TODO SSL with python2.7 env will reach ssl.Error PEM lib (_ssl.c:2693)
                             "ssl_version": ssl.PROTOCOL_SSLv23,
                             "certfile": os.path.join(os.path.dirname(__file__), "static","server.crt"),
                             "keyfile": os.path.join(os.path.dirname(__file__), "static","server.key")},

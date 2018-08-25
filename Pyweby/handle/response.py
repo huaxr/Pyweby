@@ -16,7 +16,7 @@ from handle.exc import (StatusError,MethodNotAllowedException,
 from concurrent.futures import _base
 from util.Engines import EventFuture,Eventer
 from util.logger import Logger,traceback
-from core.concurrent import safe_lock
+from core._concurrent import safe_lock
 
 
 Log = Logger(logger_name=__name__)
