@@ -254,6 +254,7 @@ def get(self):
     return xx
 ```
 - the db_session looks like this:
+
 ![mark](http://pacfhd1z8.bkt.clouddn.com/python/180825/kbekDgDB2C.png?imageslim)
 
 
