@@ -211,6 +211,7 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
                                 # Due to active or passive reasons, socket shutdown is not processed in time,
                                 # and it is necessary to determine whether socket is closed.
                                 data = sock.recv(6000)
+
                             else:
                                 continue
                         except socket.error as e:

@@ -165,10 +165,14 @@ class restful(object):
         if instance is None:
             return self
         result = self.fn(instance)
-        assert isinstance(result,(list,tuple)) and len(result) == 2
+        # assert isinstance(result,(list,tuple)) and len(result) == 2
         tmp = {}
-        tmp['res'] = result[0]
-        tmp['status'] = result[1]
+        if isinstance(result, (list, tuple)) and len(result) == 2:
+            tmp['res'] = result[0]
+            tmp['status'] = result[1]
+        else:
+            tmp['res'] = result
+            tmp['status'] = 200
         try:
             json.dumps(tmp)
         except Exception:
@@ -285,8 +289,9 @@ class WrapResponse(DangerResponse):
         '''
         if hasattr(router, 'login_require'):
             cookies = router.request.get_cookie()
-            if cookies.get('login', False) == 'True':
-                nexter = getattr(router, method)
+            # cookies may be None. if None means Unauthorized.
+            if cookies and cookies.get('is_login', False) == 'True':
+                    nexter = getattr(router, method)
             else:
                 r = Unauthorized()
                 nexter = getattr(r, method)
@@ -309,26 +314,24 @@ class WrapResponse(DangerResponse):
         while True:
             yield nexter
 
+            router = self.find_handler()()
+            # router is response , we add the request attribute to the self instance
+
+            # 1.the WrapperRequest object
+            router.request = self.wrapper
+            # 2. the global application instance binding here,this is an instance already
+            router.app = self.wrapper.application
+
             if method.upper() == 'GET':
                 '''
                 dispose GET method
                 '''
-                router = self.find_handler()()
-                #router is response , we add the request attribute to the self instance
-
-                # 1.the WrapperRequest object
-                router.request = self.wrapper
-                # 2. the global application instance binding here,this is an instance already
-                router.app = self.wrapper.application
                 nexter = self.auth_check(router,'get')
 
             elif method.upper() == 'POST':
                 '''
                 handler POST method
                 '''
-                router = self.find_handler()()
-                router.request = self.wrapper
-                router.app = self.wrapper.application
                 nexter = self.auth_check(router, 'post')
 
             else:
@@ -336,7 +339,6 @@ class WrapResponse(DangerResponse):
                 this means we don't handler except GET,POST, TODO and 
                 robust web server.
                 '''
-                router = self.find_handler()()
                 nexter = self.auth_check(router, '')
 
 
@@ -420,9 +422,7 @@ class WrapResponse(DangerResponse):
         '''
         try:
             tmp = self.discern_result(time_consuming_op=self.switch_method(self.method))
-            # <bound method testRouter4.get of <class '__main__.testRouter4'>>
-            # we add AuthHandler . this means tmp may not be MethodType, rather than
-            # AuthHandler. <handle.auth.AuthHandler object at 0x028353B0>
+
             if isinstance(tmp, types.MethodType):
                 # Do not try execute tmp() twice.
                 try:
@@ -437,7 +437,10 @@ class WrapResponse(DangerResponse):
                     response_for_no_return = self.gen_headers(self.version, None, None)
                     return response_for_no_return
 
-                body,status = X_X_X
+                if isinstance(X_X_X,(list,tuple)):
+                    body,status = X_X_X
+                else:
+                    body,status = X_X_X,200    # 200 OK response for default.
 
             # when using @restful
             elif isinstance(tmp, dict):
@@ -452,6 +455,7 @@ class WrapResponse(DangerResponse):
 
         except Exception as e:
             Log.warning(traceback(e))
+            Log.warning(e.with_traceback())
             return self.not_future_body(500, 'internal server error', prefix=prefix)
 
         """

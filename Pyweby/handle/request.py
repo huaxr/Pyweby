@@ -3,20 +3,22 @@ import time
 import re
 import os
 import threading
+import warnings
+
 import six
+import hashlib
 from datetime import datetime,timedelta
 from .exc import MethodNotAllowedException,ApplicationError
 from util.Engines import BaseEngine
 from util.logger import init_loger,traceback
-
+from core.config import Configs
 try:
     from urllib.parse import unquote
 except ImportError:
     from urllib import unquote
-
+from util.ormEngine import Session
 
 console = Log = init_loger(__name__)
-
 
 class BaseCookie(type):
         pass
@@ -27,6 +29,25 @@ class Header(object):
         raise NotImplementedError
 
 
+class Form(object):
+    def __init__(self,form_data,form_type):
+        self.form_data = form_data
+        self.form_type = form_type
+
+        if self.form_data:
+            tmp = self.parse
+            for i,j in tmp:
+                setattr(self,i,j)
+
+    @property
+    def parse(self):
+        tmp = []
+        params = unquote(self.form_data).split('&')
+        for i in params:
+            if i:
+                tmp.append(tuple(i.split('=')))
+        return tmp
+
 
 class MetaRouter(type):
     '''
@@ -34,7 +55,6 @@ class MetaRouter(type):
     making request, response communication more intuitive. isn't it?
     '''
     def __new__(cls, name, bases, attrs):
-
         def find_handler(self):
             # if login_require setting up. checking the router and judge whether cookie is legitimate.
             router = self.wrapper.find_router()
@@ -81,11 +101,15 @@ class MetaRouter(type):
 
 
 class method_check(object):
-    METHODS = ['GET', 'POST', 'OPTIONS', 'PUT', 'DELETE']
 
     def __init__(self,fn):
 
         self.func = fn
+
+
+    def __contains__(self, item):
+        return item in Configs.METHODS
+
 
     def __get__(self,instance,cls=None):
 
@@ -93,7 +117,7 @@ class method_check(object):
             return self
         res = self.func(instance)
 
-        if len(res) > 2 and res[0] in self.METHODS:
+        if len(res) > 2 and res[0] in self:
             return res
         else:
             raise MethodNotAllowedException(method=res[1])
@@ -504,10 +528,16 @@ class DangerousRequest(HttpRequest):
         else:
             return date
 
+    def clear_cookie(self):
+        tmp = ["_session="]
+        self.add_cookie_attribute(tmp)
+        if hasattr(self,'_HttpRequest__cookie_jar'):
+            self.set_header("Set-Cookie", self._HttpRequest__cookie_jar)
+
 
 class WrapRequest(DangerousRequest):
 
-    METHODS = method_check.METHODS
+    METHODS = Configs.METHODS
     DEFAULT_INDEX = PAGE_NOT_FOUNT
     METHOD_NOT_ALLOWED = METHOD_NOT_ALLOWED
     INTERNAL_SERVER_ERROR = INTERNAL_SERVER_ERROR
@@ -525,11 +555,18 @@ class WrapRequest(DangerousRequest):
         self.regdata = u'\r\n\r\n'
 
         self.headers = self.wrap_headers(self.request_data)
-        self.router = None
 
+        # only regular form requests are supported for the time being.
+        if self.headers.get('Content-Type',None):
+            form_data = self.wrap_param()
+            if form_data:
+                self.form = Form(form_data,self.headers.get('Content-Type'))
+
+        self.router = None
         self.response_header = {}
         self._status_code = 0
 
+        # add form. 8.24
         super(DangerousRequest,self).__init__(headers=self.headers,handlers=self.handlers,sock = sock)
 
     def add_cookie_attribute(self,*args,**kwargs):
@@ -545,6 +582,8 @@ class WrapRequest(DangerousRequest):
 
 
     def wrap_headers(self,bytes_header):
+        # Content-Type: application / x-www-form-urlencoded
+        # 8.24 add Content-Type support, form enable
         tmp = {}
         '''
         utilize ':' symbol to split headers into key-value parameter pairs
@@ -585,7 +624,8 @@ class WrapRequest(DangerousRequest):
 
     def wrap_param(self):
         '''
-        parse the argument from get uri and post data
+        directly retrieve the contents of the submitted query of get or post request.
+        parse the argument from get uri or post data.
         :return:  above two
         '''
         first_line = self.get_first_line
@@ -685,7 +725,7 @@ class WrapRequest(DangerousRequest):
                 return res,200
 
 
-    def get_cookie(self,key=None):
+    def get_cookie(self,key=None,safe_type='encrypt'):
         '''
         get the cookie from the header's Cookies: 'xxx'
         if key provides, then return the specific value of it
@@ -698,18 +738,24 @@ class WrapRequest(DangerousRequest):
             if not safe_cookie_handler:
                 raise ApplicationError("Error when application initilize")
             sess = cookies.split('=',1)[1]
-            try:
-                res =  safe_cookie_handler.decrypt(sess.encode())
-            except Exception:
-                return
-            temp  = res.decode()[:-2].split('&')
-            tmp = {}
-            for item in temp:
-                i,j = item.split('|')
-                tmp[i] = j
-            if key:
-                return tmp.get(key,None)
-            return tmp
+            if sess:
+                if safe_type == 'encrypt':
+                    try:
+                        res =  safe_cookie_handler.decrypt(sess.encode())
+                    except Exception:
+                        return
+                    temp  = res.decode()[:-2].split('&')
+                    tmp = {}
+                    for item in temp:
+                        i,j = item.split('|')
+                        tmp[i] = j
+                    if key:
+                        return tmp.get(key,None)
+                    return tmp
+                elif  safe_type == 'db_session':
+                    res =  Session.get(session=sess)
+                    print(res)
+
         else:
             # plain cookie
             return cookies
@@ -717,7 +763,7 @@ class WrapRequest(DangerousRequest):
 
     def set_cookie(self, cookies_dict, max_age=None, expires=None,
                    path=None, domain=None, secure=False, httponly=False,
-                   safe=True):
+                   safe_type='encrypt'):
         '''
         :param safe: for secure reason, when secure is not setted.
         use the encryption session in place of plain cookies.
@@ -725,7 +771,11 @@ class WrapRequest(DangerousRequest):
         if not cookies_dict and not isinstance(cookies_dict,dict):
             return
 
-        if safe:
+        if safe_type == 'encrypt':
+            '''
+            this means using the crypto algorithm encrypt cookies and do not use database
+            keeping the session.
+            '''
             # TODO : this is safe session declare. you should define a cryto for that.
             safe_cookie_handler = self.application.settings.get('safe_cookie_handler',None)
             if not safe_cookie_handler:
@@ -736,8 +786,22 @@ class WrapRequest(DangerousRequest):
             token = safe_cookie_handler.encrypt(session.encode())
             tmp = ["_session="+token.decode()+'; ']
 
+        elif safe_type == 'db_session':
+            '''
+            save the hash value of session and its corresponding state value.
+            - implementation with a lightweight ORM framework.
+            '''
+            s = ''.join(["{key}|{value}&".format(key=key, value=value)
+                            for key, value in cookies_dict.items()])[:-1]
+            digest = hashlib.md5(s.encode('utf-8')).hexdigest()
+            session = Session(id='',session=digest,content=s)
+            session.save()
+            tmp = ["_session=" + digest + '; ']
         else:
-
+            '''
+            plain cookie is not suggest using.
+            '''
+            warnings.warn("[!] Plain cookie is not safe. suggeste `db_session` or `encrypt` safe_type")
             tmp = ["{key}={value}; ".format(key=key, value=value)
                    for key, value in cookies_dict.items()]
 
@@ -746,4 +810,9 @@ class WrapRequest(DangerousRequest):
 
         if hasattr(self,'_HttpRequest__cookie_jar'):
             self.set_header("Set-Cookie", self._HttpRequest__cookie_jar)
+
+
+    def clear_cookie(self):
+        super(WrapRequest,self).clear_cookie()
+
 
