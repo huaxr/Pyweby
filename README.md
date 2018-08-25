@@ -10,6 +10,7 @@ Very Sexy Web Framework. Savvy?
 1. template rendering html is under ready (support major jinja2 render functionality, the same semanteme like Flask does!)
 1. support SSL communication.
 1. cookies and Authentication(@login_require) 
+1. session with ORM. Provides another secure cookie session mechanism.
 1. others: log system. cache system , malicious request analysis and disinfect and so on..
 1. enhancing capacity is still a mystery, pay close attention to it [https://github.com/huaxr/Pyweby/]()
 
@@ -235,6 +236,26 @@ class testRouter4(HttpRequest):
         name = self.request.get_arguments('name', 'defalut')
         return name,200
 ```
+
+### ORM session. 8.25
+- set_cookies and get_cookies support two secuty ways:
+- safe_type = "encrypt" will using third party encryption library to encrypt cookie。
+- safe_type = "db_session" will using orm (mysql support now) Session keeping the session in database.
+```python
+@restful
+def get(self):
+    name = self.request.get_arguments('name', 'defalut')
+    self.request.set_cookie({'name':name,'pass':name,'xxx':'xxx','login':True}, expires=66,safe_type="encrypt")
+    yy = self.request.get_cookie(safe_type="encrypt")
+
+    self.request.set_cookie({'name': name, 'pass': name, 'xxx': 'xxx', 'login': True}, expires=66,
+                            safe_type="db_session")
+    xx = self.request.get_cookie(safe_type="db_session")
+    return xx
+```
+- the db_session looks like this:
+![mark](http://pacfhd1z8.bkt.clouddn.com/python/180825/kbekDgDB2C.png?imageslim)
+
 
 
 ### log
