@@ -10,6 +10,7 @@ Very Sexy Web Framework. Savvy?
 1. template rendering html is under ready (support major jinja2 render functionality, the same semanteme like Flask does!)
 1. support SSL communication.
 1. cookies and Authentication(@login_require) 
+1. normal form handled. (TODO others Content-Type)
 1. session with ORM. Provides another secure cookie session mechanism.
 1. others: log system. cache system , malicious request analysis and disinfect and so on..
 1. enhancing capacity is still a mystery, pay close attention to it [https://github.com/huaxr/Pyweby/]()
@@ -204,6 +205,20 @@ class testRouter3(HttpRequest):
     def get(self):
         time.sleep(5)
         return "Hello World",200
+```
+
+### Form
+```python
+def get(self):
+    # ignore_cache is a cache enable flag
+    return self.request.render("form.html",name=[1,2,3],ignore_cache=False)
+    
+ # render a form html and post to /2
+ # <p>Last name: <input type="text" name="lname" /></p>
+
+@restful  # test from restful api
+def post(self):
+    return self.request.form.lname  
 ```
 
 ### Cookies
