@@ -16,7 +16,7 @@ class testRouter(HttpRequest):
 
     def get(self):
         # ignore_cache is a cache enable flag
-        return self.request.render("form.html",name=[1,2,3],ignore_cache=False)
+        return self.request.render("upload.html",name=[1,2,3],ignore_cache=False)
 
 
 class testRouter2(HttpRequest):
@@ -36,7 +36,7 @@ class testRouter2(HttpRequest):
     @restful  # test from restful api
     def post(self):
         return self.request.form.lname   # form support
-
+        # return self.request.get_arguments('lname','xxxx')
 
 class testRouter3(HttpRequest):
     @restful           # use restful before the cache_result !
@@ -54,15 +54,19 @@ class testRouter3(HttpRequest):
         self.request.set_cookie({'name': name, 'pass': name, 'xxx': 'xxx', 'login': True}, expires=66,
                                 safe_type="db_session")
         xx = self.request.get_cookie(safe_type="db_session")
+
+        self.request.clear_cookie()
         return xx
 
 
 # @login_require
 class testRouter4(HttpRequest):
     def get(self):
-        self.request.clear_cookie()
-        xx = self.request.get_cookie()
-        return xx
+        self.request.get_xml()
+        self.request.get_json()
+
+    def post(self):
+        print(self.request.file)
 
 class testRouter5(HttpRequest):
     def get(self):
@@ -99,7 +103,7 @@ class Barrel(Configs.Application):
 if __name__ == '__main__':
     loop = Looper()
     server = loop(Barrel) or loop(handlers=[(r'/hello',testRouter2),],enable_manager=1)
-    server.listen()
+    server.listen(8888)
     server.server_forever(debug=False)
 
 

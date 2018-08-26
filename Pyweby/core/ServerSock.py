@@ -62,7 +62,8 @@ class SSLSocket(object):
 
 
 def gen_serversock(port=None,ssl_enable=False):
-    HOST = socket.gethostbyname(socket.gethostname()) or '0.0.0.0'
+    HOST = socket.gethostbyname(socket.gethostname()) or '127.0.0.1'
+    # HOST = "127.0.0.1"
     PORT = 443 if ssl_enable else 80
     PORT = port or PORT
     try:
@@ -70,8 +71,9 @@ def gen_serversock(port=None,ssl_enable=False):
         s.bind((HOST, PORT))
         s.listen(88)
     except socket.error as e:
+        Log.critical("[*] Server Socket occupation conflict")
         raise e
-    Log.info("Server %s://%s:%d started! fd=[%s]"
+    Log.info("[*] Server %s://%s:%d started! fd=[%s]"
              %("https" if ssl_enable else "http",HOST,PORT,s.fileno()))
     return s
 

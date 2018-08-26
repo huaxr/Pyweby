@@ -8,9 +8,8 @@ import copy
 import six
 from functools import wraps
 from collections import OrderedDict
-from .request import MetaRouter
 
-from handle.request import HttpRequest,Unauthorized
+from handle.request import HttpRequest,Unauthorized,MetaRouter
 from handle.exc import (StatusError,MethodNotAllowedException,
                         EventManagerError,NoHandlingError,JsonPraseError)
 from concurrent.futures import _base
@@ -211,7 +210,7 @@ class DangerResponse(HttpResponse):
             print(e)
 
     def ok_body(self,body):
-        #TODO sync is not supported yet
+        #TODO sync is not supported yet , finished at   8.16
         if isinstance(body,_base.Future):
             '''
             client code usually does not ask whether the Future
@@ -422,7 +421,6 @@ class WrapResponse(DangerResponse):
         '''
         try:
             tmp = self.discern_result(time_consuming_op=self.switch_method(self.method))
-
             if isinstance(tmp, types.MethodType):
                 # Do not try execute tmp() twice.
                 try:

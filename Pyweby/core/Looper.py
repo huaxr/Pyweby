@@ -15,7 +15,7 @@ from .config import Configs
 from handle.request import WrapRequest,HttpRequest
 from handle.response import WrapResponse
 from handle.exc import NoRouterHandlers,FormatterError
-from util.Engines import  EventManager
+from util.Engines import  EventManager,EventResponse
 from .ServerSock import SSLSocket
 from util.logger import init_loger,traceback
 
@@ -266,34 +266,40 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
                         # consider future.result() calling and non-blocking , we should
                         # activate the EventManager, and trigger sock.send() later in the
                         # EventManager sub threads Looping.
-                        writers = WrapResponse(msg,self.eventManager,sock,self)
-                        body = writers.gen_body(prefix="\r\n\r\n")
-                        if body:
-                            try:
-                                bodys = body.encode()
-                            except Exception:
-                                bodys = body
-
-                            # employ curl could't deal with 302
-                            # you should try firefox or chrome instead
-                            sock.send(bodys)
-                            # do not call sock.close, because the sock still in the select,
-                            # for the next loop, it will raise ValueEror `fd must not -1`
-                            self.close(sock)
+                        if not debug:
+                            writers = WrapResponse(msg,self.eventManager,sock,self)
+                            event = EventResponse(writers)
+                            self.eventManager.addRequestWrapper(event)
                         else:
-                            '''
-                            Question: maybe body is None, just close it means connection terminate.
-                            and client will receive `Empty reply from server`?
-                            
-                            Answer:  No. if exception happens, or Future is waiting for 
-                            the result() in the EventMaster, if you close the sock, you
-                            will never send back message from the future!
-                            Keep an eye on it!
-                            '''
-                            # self.Log.info(body)
-                            # self.close(sock)
-                            # we can't set None to it
-                            continue
+                            writers = WrapResponse(msg,self.eventManager,sock,self)
+
+                            body = writers.gen_body(prefix="\r\n\r\n")
+                            if body:
+                                try:
+                                    bodys = body.encode()
+                                except Exception:
+                                    bodys = body
+
+                                # employ curl could't deal with 302
+                                # you should try firefox or chrome instead
+                                sock.send(bodys)
+                                # do not call sock.close, because the sock still in the select,
+                                # for the next loop, it will raise ValueEror `fd must not -1`
+                                self.close(sock)
+                            else:
+                                '''
+                                Question: maybe body is None, just close it means connection terminate.
+                                and client will receive `Empty reply from server`?
+    
+                                Answer:  No. if exception happens, or Future is waiting for
+                                the result() in the EventMaster, if you close the sock, you
+                                will never send back message from the future!
+                                Keep an eye on it!
+                                '''
+                                # self.Log.info(body)
+                                # self.close(sock)
+                                # we can't set None to it
+                                continue
                 else:
                     Log.info(traceback("other reason, close sock","error"))
                     self.close(sock)

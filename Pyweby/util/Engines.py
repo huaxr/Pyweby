@@ -1,18 +1,17 @@
 # encoding: UTF-8
 import types
-from concurrent.futures import ThreadPoolExecutor
-
 import re
-
 import select
+
+import threading
+from multiprocessing import Process, Queue as MQueue
+from concurrent.futures import ThreadPoolExecutor
+from util.logger import init_loger,traceback
 
 try:
     from Queue import Queue, Empty
 except ImportError:
     from queue import Queue, Empty
-
-from threading import Thread,Timer
-from util.logger import init_loger,traceback
 
 Log = init_loger(__name__)
 
@@ -90,13 +89,40 @@ class BaseEngine(object):
         #         return self.WHATEVER
         exec(co, kw)
 
+
+class _Process(Process):
+    def __init__(self, *argus, **keywords):
+        Process.__init__(self)
+        self.argus = argus
+        self.keywords = keywords
+
+    def run(self):
+        pass
+
+
+class _EventManager(object):
+    def __init__(self,Mqueue=None):
+        self._eventQ = Mqueue or MQueue
+        self._active = False
+        self._process = _Process(target = self._run_events)
+        self.__EPOLL = hasattr(select,'epoll')
+
+    def  _run_events(self):
+        pass
+
+
 class Eventer(object):
     '''
     descriptor for the event's subclasses
     '''
     def __init__(self):
         pass
-    pass
+
+    def __repr__(self):
+        return 'Event master'
+
+    def __reduce__(self):
+        return 'Event Master'
 
 class Switcher(object):
     '''
@@ -117,6 +143,7 @@ class Switcher(object):
         # active event handling thread
         self._thread.start()
 
+        
 class EventManager(Switcher):
     def __init__(self):
         """
@@ -127,7 +154,7 @@ class EventManager(Switcher):
         # the switcher of the event-manager
         self._active = False
         # the thread for handling the events, witch generate from EventManager object
-        self._thread = Thread(target = self._run_events)
+        self._thread = threading.Thread(target = self._run_events)
         self.__EPOLL = hasattr(select,'epoll')
 
         '''
@@ -144,7 +171,11 @@ class EventManager(Switcher):
             try:
                 # The blocking time of the event is set to 1 second.
                 event = self._eventQ.get(block = True, timeout = 1)
-                if isinstance(event,EventFuture):
+                # concurrent thread enable. 8.26
+                if isinstance(event,EventResponse):
+                    self._responseProcess(event)
+
+                elif isinstance(event,EventFuture):
                     self._futureProcess(event)
                 elif isinstance(event,Event):
                     self._EventProcess(event)
@@ -176,6 +207,45 @@ class EventManager(Switcher):
                 event.PollCycle.close(event.sock.fileno())
             else:
                 event.PollCycle.close(event.sock)
+
+    def _responseProcess(self,event):
+        # msg = event.request_wrapper
+        # eventManager = event.event_manager
+        # sock = event.sock
+        # PollCycle = event.PollCycle
+        # writers = WrapResponse(msg,eventManager,sock,PollCycle)
+        writers = event.writers
+        sock = writers.sock
+        PollCycle = writers.PollCycle
+
+        body = writers.gen_body(prefix="\r\n\r\n")
+        if body:
+            try:
+                bodys = body.encode()
+            except Exception:
+                bodys = body
+
+            # employ curl could't deal with 302
+            # you should try firefox or chrome instead
+            sock.send(bodys)
+            # do not call sock.close, because the sock still in the select,
+            # for the next loop, it will raise ValueEror `fd must not -1`
+            PollCycle.close(sock)
+        else:
+            '''
+            Question: maybe body is None, just close it means connection terminate.
+            and client will receive `Empty reply from server`?
+    
+            Answer:  No. if exception happens, or Future is waiting for 
+            the result() in the EventMaster, if you close the sock, you
+            will never send back message from the future!
+            Keep an eye on it!
+            '''
+            # self.Log.info(body)
+            # self.close(sock)
+            # we can't set None to it
+            pass
+
 
 
     def _EventProcess(self, event):
@@ -215,7 +285,12 @@ class EventManager(Switcher):
         self._eventQ.put(normal_event)
 
     def addFuture(self,future_event):
+        """async future handler"""
         self._eventQ.put(future_event)
+
+    def addRequestWrapper(self,wrapper_event):
+        """async response handler"""
+        self._eventQ.put(wrapper_event)
 
 
 class Event(Eventer):
@@ -236,3 +311,15 @@ class EventFuture(Eventer):
         self.PollCycle = _PollCycle
         self.dict = {}
         super(EventFuture, self).__init__()
+
+
+class EventResponse(Eventer):
+    def __init__(self,writers): #msg,event_manager,sock,_PollCycle=None):
+        # self.request_wrapper = msg
+        # self.event_manager = event_manager
+        # self.sock = sock
+        # self.PollCycle = _PollCycle
+        self.writers = writers
+        super(EventResponse, self).__init__()
+
+

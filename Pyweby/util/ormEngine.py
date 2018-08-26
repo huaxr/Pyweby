@@ -2,8 +2,8 @@ import abc
 import six
 import pymysql
 
-import warnings
-warnings.filterwarnings("ignore")
+# import warnings
+# warnings.filterwarnings("ignore")
 
 @six.add_metaclass(abc.ABCMeta)
 class BaseDB(object):

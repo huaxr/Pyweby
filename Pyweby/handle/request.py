@@ -1,4 +1,5 @@
 #coding:utf-8
+import json
 import time
 import re
 import os
@@ -17,7 +18,7 @@ try:
 except ImportError:
     from urllib import unquote
 from util.ormEngine import Session
-from util._compat import STRING
+from util._compat import STRING,_None
 
 console = Log = init_loger(__name__)
 
@@ -31,14 +32,59 @@ class Header(object):
 
 
 class Form(object):
-    def __init__(self,form_data,form_type):
-        self.form_data = form_data
-        self.form_type = form_type
 
-        if self.form_data:
+    def __init__(self,form_data,headers_dict):
+        self.form_data = form_data
+        self.headers_dict = headers_dict
+        self.form_type = self.headers_dict.get('Content-Type','application')
+        self.content_length = self.headers_dict.get('Content-Length','multipart')
+
+        if  'boundary' in self.form_type:
+            self.boundary = self.form_type.split('boundary=')[1]
+
+        '''
+        # form_type also means enctype , just like this below
+        # <form method=post enctype='multipart/form-data'>
+        The browser encapsulates form data into HTTP body or URL, 
+        and then sends it to server. If there is no type=file control,
+         use the default application/x-www-form-urlencoded. 
+         But if there is type=file, multipart/form-data is needed. 
+         
+         When the action is post and the Content-Type type is multipart/form-data, 
+         the browser splits the entire form as a control, 
+         adding information such as Content-Disposition (form-data or file),
+         Content-Type (default text/plain), name (control name),
+        and a boundary to each part. 
+
+        '''
+        if self.form_type == 'application/x-www-form-urlencoded':
+
             tmp = self.parse
             for i,j in tmp:
                 setattr(self,i,j)
+
+        elif self.form_type.startswith('multipart'):
+            # 'multipart/form-data'
+            # a small file upload header looks like this:
+            '''
+            POST/upload HTTP/1.1 
+        　　Content-Type: multipart/form-data;boundary=-----------------------------7db372eb000e2
+        　　Content-Length: 3693
+
+　　        -------------------------------7db372eb000e2
+　　        Content-Disposition: form-data; name="file"; filename="kn.jpg"\r\n
+　　        Content-Type: image/jpeg\r\n
+            \r\n
+            binary...data...\r\n
+　　        -------------------------------7db372eb000e2--\r\n  <--> this means split
+            '''
+            print(self.form_data)
+            if self.boundary:
+                _re = re.compile(self.boundary)
+                pieces = _re.split(self.form_data)
+                print(pieces)
+        else:
+            pass
 
     @property
     def parse(self):
@@ -48,6 +94,51 @@ class Form(object):
             if i:
                 tmp.append(tuple(i.split('=')))
         return tmp
+
+class _property(property):
+    '''
+    wrapped magic.
+
+    '''
+    def __init__(self, func, name=None, doc=None):
+        self.__name__ = name or func.__name__
+        self.__module__ = func.__module__
+        self.__doc__ = doc or func.__doc__
+        self.func = func
+
+        super(_property,self).__init__()
+
+
+    def __set__(self, obj, value):
+        obj.__dict__[self.__name__] = value
+
+
+    def __get__(self, instance, owner=None):
+        '''
+        keeping the result in the obj.__dict__.
+        __dict__ is instance's bindings. so, this make keeping result
+        and don't need call method twice.
+
+        >>> class Test(object):
+        >>>    @_property
+        >>>    def func(self):
+        >>>       self.name = 111
+        >>>        a = 1
+        >>>        b = 2
+        >>>        return a+b
+
+        >>> a = Test()
+        >>> c = a.func
+        >>> print(a.__dict__)
+        :return: {'func': 3}
+        '''
+        if instance is None:
+            return self
+        value = instance.__dict__.get(self.__name__, _None)
+        if value is _None:
+            value = self.func(instance)
+            instance.__dict__[self.__name__] = value
+        return value
 
 
 class MetaRouter(type):
@@ -347,6 +438,7 @@ class TemplateEngine(BaseEngine):
 ModuleEngine = TemplateEngine
 
 
+
 @six.add_metaclass(MetaRouter)
 class HttpRequest(object):
 
@@ -367,6 +459,7 @@ class HttpRequest(object):
 
     def get_first_line(self):
         raise NotImplementedError
+
 
     @property
     def get_argument(self):
@@ -393,7 +486,6 @@ class HttpRequest(object):
 
     def render(self,*args,**kwargs):
         raise NotImplementedError
-
 
 
     def add_cookie(self, *args, **kwargs):
@@ -530,10 +622,38 @@ class DangerousRequest(HttpRequest):
             return date
 
     def clear_cookie(self):
+
         tmp = ["_session="]
         self.add_cookie_attribute(tmp)
         if hasattr(self,'_HttpRequest__cookie_jar'):
             self.set_header("Set-Cookie", self._HttpRequest__cookie_jar)
+
+    def make_warning(self,key):
+        '''
+        warnings if needed.
+        if you wanna disable warnnings. add two lines at the code beginning.
+
+        >>> import warnings
+        >>> warnings.filterwarnings("ignore")
+        '''
+        def callback():
+            warnings.warn("[*] get_arguments may invalid while content type is {}".format(self.content_type))
+
+        if key is 1 and self.content_type:
+            if not hasattr(self,'_get_arguments_enable') and 'x-www-form-urlencoded' not in self.content_type:
+                callback()
+
+        elif key is 2:
+            if not hasattr(self, '_get_xml_enable'):
+                callback()
+        elif key is 3:
+            if not hasattr(self, '_get_json_enable'):
+                callback()
+        elif key is 4:
+            if not hasattr(self, '_get_plain_enable'):
+                callback()
+        else:
+            pass
 
 
 class WrapRequest(DangerousRequest):
@@ -542,6 +662,7 @@ class WrapRequest(DangerousRequest):
     DEFAULT_INDEX = PAGE_NOT_FOUNT
     METHOD_NOT_ALLOWED = METHOD_NOT_ALLOWED
     INTERNAL_SERVER_ERROR = INTERNAL_SERVER_ERROR
+
     SAFE_LOCKER = threading.RLock()
 
     def __init__(self,request_data,callback,handlers=None,application=None,sock=None):
@@ -556,19 +677,51 @@ class WrapRequest(DangerousRequest):
         self.regdata = u'\r\n\r\n'
 
         self.headers = self.wrap_headers(self.request_data)
-
-        # only regular form requests are supported for the time being.
-        if self.headers.get('Content-Type',None):
-            form_data = self.wrap_param()
-            if form_data:
-                self.form = Form(form_data,self.headers.get('Content-Type'))
+        self.content_type =  self.headers.get('Content-Type',None)
+        # Classification of content-type
+        if self.content_type:
+            self._wrap_content_type(self.content_type)
 
         self.router = None
         self.response_header = {}
         self._status_code = 0
 
-        # add form. 8.24
         super(DangerousRequest,self).__init__(headers=self.headers,handlers=self.handlers,sock = sock)
+
+
+    def _wrap_content_type(self,content_type):
+        '''
+        we judge the content-type and deal with it with different handler.
+        e.g. text, application ,..
+        :return:  None
+        '''
+        if 'text/plain' in content_type or 'text/html'  in  content_type:
+            setattr(self,'_get_arguments_enable',1)
+
+        # handling form data request.
+        elif 'x-www-form-urlencoded' in content_type or 'multipart/form-data' in content_type:
+            form_data = self.wrap_param()
+            if form_data:
+                # form is enable.
+                self.form = Form(form_data,self.headers)
+            setattr(self, '_form_enable', 1)
+
+        elif 'application/json' in content_type:
+            self.json_content =  json.loads(self.wrap_param())
+            setattr(self, '_get_json_enable', 1)
+
+        elif 'text/xml' in content_type:
+            # TODO HANDLER XML
+            self.xml_content = ''
+            setattr(self, '_get_xml_enable', 1)
+
+        else:
+            setattr(self, '_get_arguments_enable', 1)
+
+
+    # def __setattr__(self, key, value):
+    #     print(key,value)
+    #     setattr(self, key, value)
 
     def add_cookie_attribute(self,*args,**kwargs):
 
@@ -655,6 +808,10 @@ class WrapRequest(DangerousRequest):
 
     @method_check
     def get_first_line(self,callback=None):
+        '''
+        :param callback:
+        :return:
+        '''
         start_line = self.headers['first_line']
         assert isinstance(start_line,STRING),"[#] You may use `IE` browser, it's deny for that."
         method , uri, version = start_line.split(' ')
@@ -674,6 +831,7 @@ class WrapRequest(DangerousRequest):
         get value from it
         :return: key points value
         '''
+        self.make_warning(1)
         arguments = self.get_argument
         '''
         avoiding NoneType arguments
@@ -683,6 +841,32 @@ class WrapRequest(DangerousRequest):
         else:
             return default
 
+    @_property
+    def get_xml(self):
+        '''
+        there is xml post request. you should parse that.
+        :return: xml format string.
+        '''
+        self.make_warning(2)
+        return self.xml_content if hasattr(self,'xml_content') else "<?xml></xml>"
+
+    @_property
+    def get_json(self):
+        '''
+        json request handler.
+        :return: an dict-like object. json.loads()
+        '''
+        self.make_warning(3)
+        return self.json_content if hasattr(self,'json_content') else {}
+
+    @_property
+    def get_plain(self):
+        '''
+        plain text request.
+        :return: text plain result
+        '''
+        self.make_warning(4)
+        return self.get_argument if self.get_argument else ''
 
     def redirect(self,uri,permanent_redirect = False,status=None):
         # 302 header looks like:
@@ -765,9 +949,18 @@ class WrapRequest(DangerousRequest):
     def set_cookie(self, cookies_dict, max_age=None, expires=None,
                    path=None, domain=None, secure=False, httponly=False,
                    safe_type='encrypt'):
+
         '''
         :param safe: for secure reason, when secure is not setted.
         use the encryption session in place of plain cookies.
+
+        >> usage
+        token = request.headers.get('token')
+        if not token:
+            return {'msg': 'Unauthorized access'}, 403
+        user = User.verify_auth_token(token)
+        if not user:
+            return {'msg': 'Unauthorized access'}, 403
         '''
         if not cookies_dict and not isinstance(cookies_dict,dict):
             return
@@ -814,6 +1007,9 @@ class WrapRequest(DangerousRequest):
 
 
     def clear_cookie(self):
+        '''
+        reset the cookie : session=None
+        '''
         super(WrapRequest,self).clear_cookie()
 
 
