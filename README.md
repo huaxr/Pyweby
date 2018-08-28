@@ -12,6 +12,7 @@ Very Sexy Web Framework. Savvy?
 1. cookies and Authentication(@login_require) 
 1. normal form handled. (TODO others Content-Type)
 1. session with ORM. Provides another secure cookie session mechanism.
+1. file uploading. big MB file will blocking main thread.
 1. others: log system. cache system , malicious request analysis and disinfect and so on..
 1. enhancing capacity is still a mystery, pay close attention to it [https://github.com/huaxr/Pyweby/]()
 
@@ -272,6 +273,21 @@ def get(self):
 
 ![mark](http://pacfhd1z8.bkt.clouddn.com/python/180825/kbekDgDB2C.png?imageslim)
 
+
+### File uploading
+you can use self.request.file acquire file information. such as filename, file raw data.
+call saveto to save file in the path.
+```python
+class testRouter4(HttpRequest):
+    def get(self):
+        self.request.get_xml()
+        self.request.get_json()
+
+    def post(self):
+        filename = self.request.file.filename
+        self.request.file.saveto("C:\\"+filename)
+        return "success"
+```
 
 
 ### log
