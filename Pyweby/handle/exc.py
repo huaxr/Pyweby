@@ -43,3 +43,14 @@ class ProtocolError(Exception):
 class ApplicationError(Exception):
     def __init__(self, msg=None):
         super(ApplicationError, self).__init__(msg or 'Application Error')
+
+
+class ExceptHandler(Exception):
+    def __init__(self,func):
+        self.func = func
+
+    def __get__(self, instance, owner):
+        try:
+            return self.func(instance)
+        except Exception as e:
+            return e

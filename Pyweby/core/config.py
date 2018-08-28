@@ -4,7 +4,7 @@ import sys
 
 class Configs(object):
     PY3 = sys.version_info >= (3,)
-    METHODS = ['GET', 'POST', 'OPTIONS', 'PUT', 'DELETE']
+    METHODS = ['GET', 'POST',b'GET',b'POST', 'OPTIONS', 'PUT', 'DELETE', b'OPTIONS', b'PUT', b'DELETE']
     R = 0x01
     W = 0x04
     E = 0x08

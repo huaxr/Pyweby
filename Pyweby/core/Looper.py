@@ -1,23 +1,24 @@
 #coding:utf-8
 import ssl
-try:
-    import queue as Queue
-except ImportError:
-    import Queue
-
+import re
 import threading
 import socket
 import types
 import select
 
-from .ServerSock import gen_serversock
+try:
+    import queue as Queue
+except ImportError:
+    import Queue
+
+from .ServerSock import gen_serversock,SSLSocket
 from .config import Configs
 from handle.request import WrapRequest,HttpRequest
 from handle.response import WrapResponse
 from handle.exc import NoRouterHandlers,FormatterError
-from util.Engines import  EventManager,EventResponse
-from .ServerSock import SSLSocket
+from util.Engines import  EventManager,_EventManager,EventResponse,EventRecv
 from util.logger import init_loger,traceback
+from util._compat import B_DCRLF,str2bytes
 
 Log = init_loger(__name__)
 
@@ -100,10 +101,18 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
         '''
         self.enable_manager = kwargs.get('enable_manager',False)
         if self.enable_manager:
+            # thread event manager.
             self.eventManager = EventManager()
+            # process event manager
+            self.peventManager =_EventManager()
+
             self.swich_eventmanager_on()
 
         self.__EPOLL = hasattr(select, 'epoll')
+        self._re = re.compile(b'Content-Length: (.*?)\r\n')
+        self.__re = re.compile(b'\r\n\r\n')
+        self._POST = False
+        self._GET = True
 
         Configs.ChooseSelector.__init__(self,flag=self.__EPOLL)
 
@@ -113,9 +122,11 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
         #returns future object, means we catch the add_done_callback future
         #in finished. remember pass the sock obj for send result.
         self.eventManager.start()
+        self.peventManager.start()
 
     def swich_eventmanager_off(self):
         self.eventManager.stop()
+        self.peventManager.stop()
 
 
     def listen(self,port=None):
@@ -168,6 +179,7 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
                 continue
 
             for sock,event in fd_event_pair:
+
                 if event & Configs.R:
                     if sock is self.server:
                         conn, address = sock.accept()
@@ -206,51 +218,98 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
                             self.pair[conn] = Queue.Queue()
 
                     else:
-                        try:
-                            if sock.fileno() != -1:
-                                # Due to active or passive reasons, socket shutdown is not processed in time,
-                                # and it is necessary to determine whether socket is closed.
-                                data = sock.recv(6000)
-                            else:
-                                continue
-                        except socket.error as e:
-                            Log.info(traceback(e))
-                            self.close(sock)
-                            continue
-                        except Exception as e:
-                            Log.info(traceback(e))
-                            self.close(sock)
-                            continue
+                        if sock.fileno() != -1:
+                            # Due to active or passive reasons, socket shutdown is not processed in time,
+                            # and it is necessary to determine whether socket is closed.
 
-                        '''
-                        here is the request origin.
-                        PollCycle is origin from SelectCycle, application will be registered 
-                        at there
-               
-                        the define of the main.py has two ways:
-                        1. server = loop(handlers=[(r'/hello',testRouter2),])
-                        2. server = loop(Barrel) 
-                        
-                        if 2 is choosen to be the method, with a series of examinations,
-                        self.application will be set the Barrel instance
-
-                        '''
-                        data = WrapRequest(data,lambda x:dict(x),handlers=self.handlers,
-                                           application=self.application,sock=sock)
-
-                        if data:
-                            # for later usage, when the next Loop by the kernel select, that's
-                            # will be reuse the data putting in it.
-                            if sock in self.pair:
-                                self.pair[sock].put(data)
-                                self._impl.add_sock(sock,Configs.W)
-                            else:
+                            if debug:
+                                # this part is not support. cause some problem i cant't handle yet!
+                                # event trigger could not success.
+                                event = EventRecv(sock=sock,_impl=self._impl,
+                                                  pair=self.pair,PollCycle=self,WrapRequest=WrapRequest,handlers=self.handlers,
+                                                  application =self.application)
+                                self.peventManager.addEvent(event)
+                                self.modify(sock)
                                 continue
 
+                            else:
+                                data_ = []
+                                length = 0
+                                pos = 0
+                                while 1:
+                                    try:
+                                        data = sock.recv(65535)
+                                    except (socket.error,Exception) as e:
+                                        Log.info(traceback(e))
+                                        self.close(sock)
+                                        continue
+
+                                    if data.startswith(b'GET'):
+                                        if data.endswith(B_DCRLF):
+                                            data_.append(data)
+                                            break
+                                        else:
+                                            data_.append(data)
+
+                                    elif data.startswith(b'POST'):
+                                        # TODO, blocking recv , how to solving.
+                                        # server side uploading .
+                                        sock.setblocking(1)
+                                        length = int(self._re.findall(data)[0].decode())
+                                        header_part,part_part = self.__re.split(data,1)
+
+                                        data_.extend([header_part,B_DCRLF,part_part])
+                                        pos = len(part_part)
+                                        self._POST = True
+
+                                    if self._POST:
+                                        if length <= pos:
+                                            if data:
+                                                # always put the last pieces of raw data in the list
+                                                # otherwise, the data will be incomplete and the file
+                                                # will fail.
+                                                # after this, break while, recv complete.
+                                                data_.append(data)
+                                            break
+                                        else:
+                                            if data:
+                                                data_.append(data)
+                                                pos += len(data)
+
+                                data = b''.join(data_)
+
+                                '''
+                                here is the request origin.
+                                PollCycle is origin from SelectCycle, application will be registered 
+                                at there
+
+                                the define of the main.py has two ways:
+                                1. server = loop(handlers=[(r'/hello',testRouter2),])
+                                2. server = loop(Barrel) 
+
+                                if 2 is choosen to be the method, with a series of examinations,
+                                self.application will be set the Barrel instance
+
+                                '''
+                                data = WrapRequest(data, lambda x: dict(x), handlers=self.handlers,
+                                                   application=self.application, sock=sock)
+
+                                if data:
+                                    # for later usage, when the next Loop by the kernel select, that's
+                                    # will be reuse the data putting in it.
+                                    if sock in self.pair:
+                                        self.pair[sock].put(data)
+                                        self._impl.add_sock(sock, Configs.W)
+                                    else:
+                                        continue
+
+                                else:
+                                    # if there is no data receive, that means socket has been disconnected
+                                    # so , let's remove it now!
+                                    self.close(sock)
+                                # data = sock.recv(60000)
                         else:
-                            # if there is no data receive, that means socket has been disconnected
-                            # so , let's remove it now!
-                            self.close(sock)
+                            continue
 
                 elif event & Configs.W:
                     try:
@@ -270,21 +329,21 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
                             writers = WrapResponse(msg,self.eventManager,sock,self)
                             event = EventResponse(writers)
                             self.eventManager.addRequestWrapper(event)
+
                         else:
                             writers = WrapResponse(msg,self.eventManager,sock,self)
-
                             body = writers.gen_body(prefix="\r\n\r\n")
                             if body:
-                                try:
-                                    bodys = body.encode()
-                                except Exception:
-                                    bodys = body
+                                bodys = str2bytes(body)
 
                                 # employ curl could't deal with 302
                                 # you should try firefox or chrome instead
                                 sock.send(bodys)
                                 # do not call sock.close, because the sock still in the select,
                                 # for the next loop, it will raise ValueEror `fd must not -1`
+
+                                # 8.27 change the close to modify. long connection is needed.
+                                # self.modify(sock)
                                 self.close(sock)
                             else:
                                 '''
@@ -432,6 +491,9 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
             self._impl.register(fd, select.EPOLLIN)  # read
         else:
             self._impl.add_sock(fd, events)
+
+    def modify(self,sock):
+        self._impl.modify_sock(sock,Configs.W)
 
 
     def close(self,sock):

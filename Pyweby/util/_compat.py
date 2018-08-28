@@ -21,3 +21,25 @@ class _None(object):
         return 'NoneObject is not reduce'
 
 _None = _None()
+
+CODING = sys.getdefaultencoding()
+
+bytes2str = lambda x: x.decode() if isinstance(x,bytes) else x
+str2bytes = lambda x:x.encode() if isinstance(x,str) else x
+
+SYSTEM = sys.platform
+
+if SYSTEM.startswith('win'):
+    bytes2defaultcoding = lambda x: x.decode('gbk') if isinstance(x,bytes) else x
+else:
+    bytes2defaultcoding = lambda x: x.decode('utf-8') if isinstance(x, bytes) else x
+
+CRLF = "\r\n"
+B_CRLF = b"\r\n"
+DCRLF = "\r\n\r\n"
+B_DCRLF = b"\r\n\r\n"
+AND = '&'
+EQUALS = '='
+SEMICOLON = ';'
+
+

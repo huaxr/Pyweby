@@ -67,7 +67,7 @@ def gen_serversock(port=None,ssl_enable=False):
     PORT = 443 if ssl_enable else 80
     PORT = port or PORT
     try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM,0)
         s.bind((HOST, PORT))
         s.listen(88)
     except socket.error as e:

@@ -32,12 +32,13 @@ class _select(object):
             return []
 
         events = {}
+
         for fd in readable:
-            events[fd] = events.get(fd, 0) | Configs.R
+            events[fd] = Configs.R
         for fd in writeable:
-            events[fd] = events.get(fd, 0) | Configs.W
+            events[fd] = Configs.W
         for fd in exceptions:
-            events[fd] = events.get(fd, 0) | Configs.E
+            events[fd] = Configs.E
         return events.items()
 
     def add_sock(self,fd, event):

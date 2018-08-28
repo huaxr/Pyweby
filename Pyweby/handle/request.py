@@ -5,22 +5,36 @@ import re
 import os
 import threading
 import warnings
-
+import struct
 import six
 import hashlib
-from datetime import datetime,timedelta
-from .exc import MethodNotAllowedException,ApplicationError
+
 from util.Engines import BaseEngine
-from util.logger import init_loger,traceback
 from core.config import Configs
+from util.ormEngine import Session
+from datetime import datetime,timedelta
+from util.logger import init_loger,traceback
+from .exc import MethodNotAllowedException,ApplicationError
+from util._compat import bytes2str,CRLF,DCRLF,B_CRLF,\
+    B_DCRLF,AND,EQUALS,SEMICOLON,STRING,_None,bytes2defaultcoding
 try:
     from urllib.parse import unquote
 except ImportError:
     from urllib import unquote
-from util.ormEngine import Session
-from util._compat import STRING,_None
+
 
 console = Log = init_loger(__name__)
+
+
+def ExceptHandler(func):
+    def wrapper(self, *args, **kwargs):
+        try:
+            return func(self, *args, **kwargs)
+        except Exception as e:
+            Log.critical(traceback(e))
+            return None
+    return wrapper
+
 
 class BaseCookie(type):
         pass
@@ -30,70 +44,8 @@ class Header(object):
     def __init__(self):
         raise NotImplementedError
 
-
-class Form(object):
-
-    def __init__(self,form_data,headers_dict):
-        self.form_data = form_data
-        self.headers_dict = headers_dict
-        self.form_type = self.headers_dict.get('Content-Type','application')
-        self.content_length = self.headers_dict.get('Content-Length','multipart')
-
-        if  'boundary' in self.form_type:
-            self.boundary = self.form_type.split('boundary=')[1]
-
-        '''
-        # form_type also means enctype , just like this below
-        # <form method=post enctype='multipart/form-data'>
-        The browser encapsulates form data into HTTP body or URL, 
-        and then sends it to server. If there is no type=file control,
-         use the default application/x-www-form-urlencoded. 
-         But if there is type=file, multipart/form-data is needed. 
-         
-         When the action is post and the Content-Type type is multipart/form-data, 
-         the browser splits the entire form as a control, 
-         adding information such as Content-Disposition (form-data or file),
-         Content-Type (default text/plain), name (control name),
-        and a boundary to each part. 
-
-        '''
-        if self.form_type == 'application/x-www-form-urlencoded':
-
-            tmp = self.parse
-            for i,j in tmp:
-                setattr(self,i,j)
-
-        elif self.form_type.startswith('multipart'):
-            # 'multipart/form-data'
-            # a small file upload header looks like this:
-            '''
-            POST/upload HTTP/1.1 
-        　　Content-Type: multipart/form-data;boundary=-----------------------------7db372eb000e2
-        　　Content-Length: 3693
-
-　　        -------------------------------7db372eb000e2
-　　        Content-Disposition: form-data; name="file"; filename="kn.jpg"\r\n
-　　        Content-Type: image/jpeg\r\n
-            \r\n
-            binary...data...\r\n
-　　        -------------------------------7db372eb000e2--\r\n  <--> this means split
-            '''
-            print(self.form_data)
-            if self.boundary:
-                _re = re.compile(self.boundary)
-                pieces = _re.split(self.form_data)
-                print(pieces)
-        else:
-            pass
-
-    @property
-    def parse(self):
-        tmp = []
-        params = unquote(self.form_data).split('&')
-        for i in params:
-            if i:
-                tmp.append(tuple(i.split('=')))
-        return tmp
+    def ExceptHandler(self):
+        pass
 
 class _property(property):
     '''
@@ -114,6 +66,7 @@ class _property(property):
 
 
     def __get__(self, instance, owner=None):
+
         '''
         keeping the result in the obj.__dict__.
         __dict__ is instance's bindings. so, this make keeping result
@@ -141,6 +94,209 @@ class _property(property):
         return value
 
 
+
+class File(object):
+    '''
+    request.file
+    the properties of a file upload operation from which you can access the properties
+    of a file object, such as filename, type of upload, hexadecimal ,and so on.
+
+    '''
+    __slots__  = ['info','raw',"filename","name"]
+
+    def __init__(self,file_info=None,file_raw=None):
+        self.info = file_info
+        self.raw = file_raw
+
+    def __getattribute__(self, item):
+        item = item.lower()
+        tmp = {}
+
+        if item in ('filename','name'):
+            info = self.info.get('Content-Disposition',None)
+            for _item in info.split(SEMICOLON):
+                if EQUALS in _item:
+                    k,v = _item.split(EQUALS)
+                    tmp[k.strip()] = v.strip('"')
+            return tmp.get(item,_None)
+
+        return object.__getattribute__(self, item)
+
+
+    @ExceptHandler
+    def saveto(self,path):
+        '''
+        save the File object's raw_data to a path.
+
+        raw_data has two station:
+        1. application/octet-stream
+        2. application/text-plain
+        the two states are properly handled here, Is there still bug?
+        :param path: the path you wanner to save it.
+        :return: None
+        '''
+
+        if path and os.path.exists(os.path.dirname(path)):
+            if isinstance(self.raw, bytes):
+                with open(path, 'wb+') as f:
+                    _hex = self.raw.hex()
+                    for i in range(int(len(_hex) / 4)):
+                        hex = int(str(_hex[i*4:i*4+4]),16)
+                        f.write(struct.pack(">H",hex))
+            else:
+                with open(path, 'w+') as f:
+                    f.write(self.raw)
+        else:
+            Log.info("[!] file [%s] path is illegal" %path)
+            return
+
+    def make_secure_name(self):
+        _file = self.filename
+
+
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        pass
+
+    def __repr__(self):
+        return self.__doc__ if hasattr(self,'__doc__') \
+            else 'the properties of a file upload operation from ' \
+                                                            'which you can access the properties ' \
+                                                            'of a file object, such as filename, type of ' \
+                                                            'upload, hexadecimal ,and so on.'
+
+class BaseForm(object):
+
+    def __repr__(self):
+        return "Correctly handle the form parameters of the HTTP request, " \
+               "and classify the information according to the content-type field."
+
+
+class Form(BaseForm):
+
+    def __init__(self,WrapRequest,form_data,headers_dict):
+        self.WrapRequest = WrapRequest
+        self.form_data = form_data
+        self.headers_dict = headers_dict
+        self.form_type = bytes2str(self.headers_dict.get('Content-Type','application'))
+        self.content_length = self.headers_dict.get('Content-Length',0)
+
+        if  'boundary' in self.form_type:
+            self.boundary = '--'+self.form_type.split('boundary=')[1]
+
+        '''
+        # form_type also means enctype , just like this below
+        # <form method=post enctype='multipart/form-data'>
+        The browser encapsulates form data into HTTP body or URL, 
+        and then sends it to server. If there is no type=file control,
+         use the default application/x-www-form-urlencoded. 
+         But if there is type=file, multipart/form-data is needed. 
+         
+         When the action is post and the Content-Type type is multipart/form-data, 
+         the browser splits the entire form as a control, 
+         adding information such as Content-Disposition (form-data or file),
+         Content-Type (default text/plain), name (control name),
+        and a boundary to each part. 
+
+        '''
+        if self.form_type == 'application/x-www-form-urlencoded':
+
+            tmp = self.parse
+            for item in tmp:
+                # if a malicious attacker uses -d "x" instead of -d "x=x"
+                if len(item) == 2:
+                    i, j = item
+                    setattr(self,i,j)
+
+        elif self.form_type.startswith('multipart'):
+            # 'multipart/form-data'
+            # a small file upload header looks like this:
+            '''
+            POST/upload HTTP/1.1 
+        　　Content-Type: multipart/form-data;boundary=-----------------------------7db372eb000e2
+        　　Content-Length: 3693
+
+　　        -------------------------------7db372eb000e2
+　　        Content-Disposition: form-data; name="file"; filename="kn.jpg"\r\n
+　　        Content-Type: image/jpeg\r\n
+            \r\n
+            binary...data...\r\n
+　　        -------------------------------7db372eb000e2--\r\n 
+            '''
+            if self.boundary:
+                if isinstance(self.form_data,str):
+                    _re = re.compile(self.boundary)
+                    __re = re.compile(CRLF)
+                    ___re = re.compile(DCRLF)
+                    pieces = _re.split(self.form_data)
+                    tmp = {}
+                    for i in pieces:
+                        if i:
+                            core_ = ___re.split(i)
+                            if len(core_) == 2:
+                                form_data_info,form_data_raw = core_
+                                info_ = __re.split(form_data_info.strip())
+                                for i in info_:
+                                    if i.__contains__(':'):
+                                        b_key, b_value = i.split(':',1)
+                                        if b_key in ('Content-Disposition','Content-Type'):
+                                            tmp[b_key] = b_value
+
+                                self.form_data_info = tmp
+                                self.form_data_raw = form_data_raw.strip()
+
+
+                elif isinstance(self.form_data,bytes):
+                    _re = re.compile(self.boundary.encode())
+                    __re = re.compile(B_CRLF)
+                    ___re = re.compile(B_DCRLF)
+                    pieces = _re.split(self.form_data)
+                    tmp = {}
+
+                    for i in pieces:
+                        if i :
+                            core_ = ___re.split(i)
+                            if len(core_) == 2:
+                                form_data_info, form_data_raw = core_
+                                info_ = __re.split(form_data_info.strip())
+                                for i in info_:
+                                    if i.__contains__(b':'):
+                                        b_key, b_value = i.split(b':', 1)
+                                        if b_key in (b'Content-Disposition', b'Content-Type'):
+                                            # possible chinese charecter . do not use bytes2str to b_value
+                                            tmp[bytes2str(b_key)] = bytes2defaultcoding(b_value)
+
+                                self.form_data_info = tmp
+                                self.form_data_raw = form_data_raw.strip()
+
+                else:
+                    raise TypeError('No Handling.')
+        else:
+            raise TypeError('No Handling.')
+        # print(self.form_data_info)
+        # print(self.form_data_raw)
+        self.binding_file()
+
+
+    def binding_file(self):
+        if hasattr(self,'form_data_info'):
+            with File(self.form_data_info,self.form_data_raw) as _f:
+                setattr(self.WrapRequest,'file',_f)
+
+
+    @property
+    def parse(self):
+        tmp = []
+        params = unquote(self.form_data).split('&')
+        for i in params:
+            if i:
+                tmp.append(tuple(i.split('=')))
+        return tmp
+
+
 class MetaRouter(type):
     '''
     we abstract router lookup into this metaclass, making the code logic more compact,
@@ -161,7 +317,7 @@ class MetaRouter(type):
             :return:
             '''
             try:
-                method, path, query, version = self.get_first_line
+                method, path, query, version = [bytes2str(i) for i in list(self.get_first_line)]
                 sock_from, sock_port = self.sock.getpeername()
                 # print the request log . query may be None
                 if None in (method, path, version):
@@ -212,6 +368,7 @@ class method_check(object):
         if len(res) > 2 and res[0] in self:
             return res
         else:
+            Log.info("raise MethodNotAllowedException")
             raise MethodNotAllowedException(method=res[1])
 
 
@@ -470,10 +627,10 @@ class HttpRequest(object):
         arguments = self.wrap_param()
         if arguments:
             tmp = []
-            params = unquote(arguments).split('&')
+            params = unquote(arguments).split(AND)
             for i in params:
                 if i:
-                    tmp.append(tuple(i.split('=')))
+                    tmp.append(tuple(i.split(EQUALS)))
 
             return self.safe_dict(tmp)
 
@@ -668,19 +825,19 @@ class WrapRequest(DangerousRequest):
     def __init__(self,request_data,callback,handlers=None,application=None,sock=None):
         self.request_data = request_data
         self.handlers = callback(handlers)
-
         self.application = application
         self.sock = sock
 
         self._has_wrapper = False
-        self.regexp = re.compile(r'\r?\n')
-        self.regdata = u'\r\n\r\n'
-
+        self.regexp = re.compile(CRLF)
+        self.b_regexp = re.compile(B_CRLF)
+        self.regdata = re.compile(DCRLF)
+        self.b_regdata = re.compile(B_DCRLF)
         self.headers = self.wrap_headers(self.request_data)
         self.content_type =  self.headers.get('Content-Type',None)
-        # Classification of content-type
+            # Classification of content-type
         if self.content_type:
-            self._wrap_content_type(self.content_type)
+            self._wrap_content_type(bytes2str(self.content_type))
 
         self.router = None
         self.response_header = {}
@@ -701,9 +858,10 @@ class WrapRequest(DangerousRequest):
         # handling form data request.
         elif 'x-www-form-urlencoded' in content_type or 'multipart/form-data' in content_type:
             form_data = self.wrap_param()
+
             if form_data:
                 # form is enable.
-                self.form = Form(form_data,self.headers)
+                self.form = Form(self,form_data,self.headers)
             setattr(self, '_form_enable', 1)
 
         elif 'application/json' in content_type:
@@ -738,7 +896,6 @@ class WrapRequest(DangerousRequest):
     def wrap_headers(self,bytes_header):
         # Content-Type: application / x-www-form-urlencoded
         # 8.24 add Content-Type support, form enable
-        tmp = {}
         '''
         utilize ':' symbol to split headers into key-value parameter pairs
         an keep the result in the self.pair
@@ -756,25 +913,44 @@ class WrapRequest(DangerousRequest):
             try:
                 headers = bytes_header.decode()
                 assert not isinstance(headers,bytes),"The HTTP Request Protocol Error, SSL is disable now"
-            except Exception as e:
-                Log.info(traceback(e))
+                return self.bytes_or_str(headers, str)
+
+            except (UnicodeDecodeError,Exception):
+                '''
+                it may contain values that can not be decoded, and can not be 
+                transferred directly to byte at str.
+                '''
                 headers = bytes_header
-                assert not isinstance(headers, bytes),"The HTTP Request Protocol Error, SSL is disable now"
+                assert isinstance(headers,bytes)
+                return self.bytes_or_str(headers,bytes)
 
-            _headers = self.regexp.split(headers)
-            tmp[u'first_line'] = _headers[0]
-            _headers.remove(_headers[0])
-
-            for line in _headers:
-                if line:
-                    if line.__contains__(':'):
-                        attribute , parameter = line.split(':',1)
-                        tmp[attribute] = parameter.strip()
-                else:
-                    break
         self._has_wrapper = True
 
+
+    def bytes_or_str(self,headers,type):
+        tmp = {}
+        if type is bytes:
+            semicolon = b':'
+            _re = self.b_regexp
+            __re = self.b_regdata
+        else:
+            semicolon = ':'
+            _re = self.regexp
+            __re = self.regdata
+
+        _header = __re.split(headers)[0] # split data parts. cause there may raw bytes.
+        _headers = _re.split(_header)
+        tmp['first_line'] = bytes2str(_headers[0])
+        _headers.remove(_headers[0])
+        for line in _headers:
+            if line:
+                if line.__contains__(semicolon):
+                    attribute, parameter = line.split(semicolon, 1)
+                    tmp[bytes2str(attribute)] = bytes2str(parameter.strip())
+            else:
+                break
         return tmp
+
 
     def wrap_param(self):
         '''
@@ -786,18 +962,18 @@ class WrapRequest(DangerousRequest):
         method = first_line[0]
         query = first_line[2]
         if method in self.METHODS:
-            if method == 'GET':
+            if method in ('GET',b'GET'):
                 if query:
                     return query
 
-            elif method == 'POST':
+            elif method in ('POST',b'POST'):
                 # handing TypeError: a bytes-like object is required, not 'str' for python3
                 # for Compatible with python2, try and catch
                 try:
-                    data = self.request_data.decode().split(self.regdata,1)[1]
+                    data = self.regdata.split(self.request_data.decode(),1)[1]
                 except Exception:
-                    data = self.request_data.split(self.regdata,1)[1]
-
+                    # Errors like 'utf-8' codec can't decode byte 0x92 in position XXX.
+                    data = self.b_regdata.split(self.request_data,1)[1]
                 if data:
                     return data
             else:
@@ -813,10 +989,18 @@ class WrapRequest(DangerousRequest):
         :return:
         '''
         start_line = self.headers['first_line']
+        if isinstance(start_line,bytes):
+            blank = b' '
+            qmark = b'?'
+        else:
+            blank = ' '
+            qmark = '?'
+
         assert isinstance(start_line,STRING),"[#] You may use `IE` browser, it's deny for that."
-        method , uri, version = start_line.split(' ')
+
+        method , uri, version = start_line.split(blank)
         try:
-            path, query = uri.split('?',1)
+            path, query = uri.split(qmark,1)
             return [i.strip() for i in (method, path, query, version)]
         except ValueError:
             return (method,uri,None,version)
@@ -949,7 +1133,6 @@ class WrapRequest(DangerousRequest):
     def set_cookie(self, cookies_dict, max_age=None, expires=None,
                    path=None, domain=None, secure=False, httponly=False,
                    safe_type='encrypt'):
-
         '''
         :param safe: for secure reason, when secure is not setted.
         use the encryption session in place of plain cookies.
@@ -1011,5 +1194,7 @@ class WrapRequest(DangerousRequest):
         reset the cookie : session=None
         '''
         super(WrapRequest,self).clear_cookie()
+
+
 
 

@@ -182,7 +182,7 @@ class restful(object):
 def check_param(fn):
     def wrapper(self,router,method):
         #TODO, later usage add methods.
-        if method not in ['get','post']:
+        if method not in ['get','post',b'get',b'post']:
             raise ValueError('%s is not allowed method' %method)
         return fn(self,router,method)
     return wrapper
@@ -315,19 +315,18 @@ class WrapResponse(DangerResponse):
 
             router = self.find_handler()()
             # router is response , we add the request attribute to the self instance
-
             # 1.the WrapperRequest object
             router.request = self.wrapper
             # 2. the global application instance binding here,this is an instance already
             router.app = self.wrapper.application
 
-            if method.upper() == 'GET':
+            if method.upper() in ('GET',b'GET'):
                 '''
                 dispose GET method
                 '''
                 nexter = self.auth_check(router,'get')
 
-            elif method.upper() == 'POST':
+            elif method.upper() in ('POST',b'POST'):
                 '''
                 handler POST method
                 '''
@@ -389,7 +388,8 @@ class WrapResponse(DangerResponse):
         return the headers that contains the response prefix
         '''
 
-        self.headers['Server'] = " Pyweby Web 1.0"
+        self.headers['Server'] = "Pyweby Web 1.0"
+        # self.headers['Connection']= 'Keep-Alive'
         self.headers['first_line'] = "{version} {status} {msg}".format(version=version, status=status,msg=msg)
 
         if add_header and isinstance(add_header,dict):

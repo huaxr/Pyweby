@@ -66,7 +66,11 @@ class testRouter4(HttpRequest):
         self.request.get_json()
 
     def post(self):
-        print(self.request.file)
+
+        filename = self.request.file.filename
+        self.request.file.saveto("C:\\"+filename)
+        return "success"
+
 
 class testRouter5(HttpRequest):
     def get(self):
@@ -82,7 +86,7 @@ class Barrel(Configs.Application):
                          (r'/5', testRouter5),]
         self.settings = {
             "enable_manager":True,   # if you want get the Future.result and without blocking the server. set it True
-            "ssl_options": {"ssl_enable": 1,
+            "ssl_options": {"ssl_enable": 0,
                             #TODO SSL with python2.7 env will reach ssl.Error PEM lib (_ssl.c:2693)
                             "ssl_version": ssl.PROTOCOL_SSLv23,
                             "certfile": os.path.join(os.path.dirname(__file__), "static","server.crt"),

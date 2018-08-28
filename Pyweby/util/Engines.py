@@ -1,12 +1,15 @@
 # encoding: UTF-8
+import socket
 import types
 import re
 import select
-
 import threading
-from multiprocessing import Process, Queue as MQueue
+from multiprocessing import Queue as MQueue
+from multiprocessing import Process
 from concurrent.futures import ThreadPoolExecutor
 from util.logger import init_loger,traceback
+from util._compat import B_DCRLF
+
 
 try:
     from Queue import Queue, Empty
@@ -90,40 +93,6 @@ class BaseEngine(object):
         exec(co, kw)
 
 
-class _Process(Process):
-    def __init__(self, *argus, **keywords):
-        Process.__init__(self)
-        self.argus = argus
-        self.keywords = keywords
-
-    def run(self):
-        pass
-
-
-class _EventManager(object):
-    def __init__(self,Mqueue=None):
-        self._eventQ = Mqueue or MQueue
-        self._active = False
-        self._process = _Process(target = self._run_events)
-        self.__EPOLL = hasattr(select,'epoll')
-
-    def  _run_events(self):
-        pass
-
-
-class Eventer(object):
-    '''
-    descriptor for the event's subclasses
-    '''
-    def __init__(self):
-        pass
-
-    def __repr__(self):
-        return 'Event master'
-
-    def __reduce__(self):
-        return 'Event Master'
-
 class Switcher(object):
     '''
     just play the part of a switch which control EventManager start or stop.
@@ -142,6 +111,106 @@ class Switcher(object):
         self._active = True
         # active event handling thread
         self._thread.start()
+
+
+class _Process(Process):
+    def __init__(self, target=None):
+        Process.__init__(self)
+        self.target = target
+
+    def run(self):
+        self.target()
+
+
+class _EventManager(Switcher):
+    def __init__(self):
+        self._eventQ = Queue()
+        self._active = False
+        self._thread = threading.Thread(target = self._run_events)
+        self._re = re.compile(b'Content-Length: (.*?)\r\n')
+        self.__re = re.compile(b'\r\n\r\n')
+        super(_EventManager, self).__init__(self._active, self._thread)
+
+    def _run_events(self):
+        while self._active == True:
+            try:
+                # The blocking time of the event is set to 1 second.
+                event = self._eventQ.get(block = True, timeout = 1)
+                self.eventHandler(event)
+            except Empty:
+                pass
+
+    def eventHandler(self,event):
+
+        sock = event.sock
+        if sock.fileno() > 0:
+            return
+        impl = event._impl
+        pair = event.pair
+        cycle = event.PollCycle
+        WrapRequest = event.WrapRequest
+        handlers = event.handlers
+        app = event.application
+
+        data_ = []
+        length = 0
+        pos = 0
+
+        while 1:
+            try:
+                data = sock.recv(65535)
+            except (socket.error, Exception) as e:
+                Log.info(traceback(e))
+                cycle.close(sock)
+                continue
+
+            if data.startswith(b'GET'):
+                if data.endswith(B_DCRLF):
+                    data_.append(data)
+                    break
+                else:
+                    data_.append(data)
+
+            elif data.startswith(b'POST'):
+                # TODO, blocking recv , how to solving.
+                # server side uploading .
+                sock.setblocking(1)
+                length = int(self._re.findall(data)[0].decode())
+                header_part, part_part = self.__re.split(data, 1)
+
+                data_.extend([header_part, B_DCRLF, part_part])
+                pos = len(part_part)
+                self._POST = True
+
+            if self._POST:
+                if length <= pos:
+                    if data:
+                        data_.append(data)
+                    break
+                else:
+                    if data:
+                        data_.append(data)
+                        pos += len(data)
+
+            data = b''.join(data_)
+
+            data = WrapRequest(data, lambda x: dict(x), handlers=handlers,
+                               application=app, sock=sock)
+            if data:
+                if sock in pair:
+                    pair[sock].put(data)
+                    impl.add_sock(sock, 0x4)
+                else:
+                    continue
+
+            else:
+                # if there is no data receive, that means socket has been disconnected
+                # so , let's remove it now!
+                cycle.close(sock)
+
+
+    def addEvent(self,event):
+        self._eventQ.put(event)
 
         
 class EventManager(Switcher):
@@ -227,7 +296,7 @@ class EventManager(Switcher):
 
             # employ curl could't deal with 302
             # you should try firefox or chrome instead
-            sock.send(bodys)
+            sock.sendall(bodys)
             # do not call sock.close, because the sock still in the select,
             # for the next loop, it will raise ValueEror `fd must not -1`
             PollCycle.close(sock)
@@ -293,6 +362,20 @@ class EventManager(Switcher):
         self._eventQ.put(wrapper_event)
 
 
+class Eventer(object):
+    '''
+    descriptor for the event's subclasses
+    '''
+    def __init__(self):
+        pass
+
+    def __repr__(self):
+        return 'Event master Object'
+
+    def __reduce__(self):
+        return 'Event Master'
+
+
 class Event(Eventer):
     def __init__(self, _type=None):
         self.type = _type
@@ -323,3 +406,13 @@ class EventResponse(Eventer):
         super(EventResponse, self).__init__()
 
 
+class EventRecv(Eventer):
+    def __init__(self,sock=None,_impl=None,pair=None,PollCycle=None,WrapRequest=None,handlers=None,application=None):
+        self.sock = sock
+        self._impl = _impl
+        self.pair = pair
+        self.PollCycle = PollCycle
+        self.WrapRequest = WrapRequest
+        self.handlers = handlers
+        self.application = application
+        super(EventRecv,self).__init__()
