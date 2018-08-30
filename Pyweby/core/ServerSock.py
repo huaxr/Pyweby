@@ -1,7 +1,8 @@
 #coding:utf-8
-
 import ssl
 import socket
+import time
+
 from .config import Configs
 from util.logger import Logger
 
@@ -62,6 +63,7 @@ class SSLSocket(object):
 
 
 def gen_serversock(port=None,ssl_enable=False):
+
     HOST = socket.gethostbyname(socket.gethostname()) or '127.0.0.1'
     # HOST = "127.0.0.1"
     PORT = 443 if ssl_enable else 80
@@ -73,7 +75,9 @@ def gen_serversock(port=None,ssl_enable=False):
     except socket.error as e:
         Log.critical("[*] Server Socket occupation conflict")
         raise e
-    Log.info("[*] Server %s://%s:%d started! fd=[%s]"
-             %("https" if ssl_enable else "http",HOST,PORT,s.fileno()))
+    Log.info("[*] Hello, {}@Pyweby master.".format(socket.gethostname()))
+
+    time.sleep(0.5)
+    Log.info("[*] Server %s://%s:%d started! fd=[%s]" %("https" if ssl_enable else "http",HOST,PORT,s.fileno()))
     return s
 

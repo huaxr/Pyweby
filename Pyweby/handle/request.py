@@ -10,21 +10,34 @@ import six
 import hashlib
 
 from util.Engines import BaseEngine
+from collections import namedtuple
+from handle.auth import Session,PRIVILIGE,user_level
 from core.config import Configs
-from util.ormEngine import Session
 from datetime import datetime,timedelta
 from util.logger import init_loger,traceback
 from .exc import MethodNotAllowedException,ApplicationError
 from util._compat import bytes2str,CRLF,DCRLF,B_CRLF,\
-    B_DCRLF,AND,EQUALS,SEMICOLON,STRING,_None,bytes2defaultcoding
-try:
-    from urllib.parse import unquote
-except ImportError:
-    from urllib import unquote
+    B_DCRLF,AND,EQUALS,SEMICOLON,STRING,_None,bytes2defaultcoding,UNQUOTE
 
+
+
+Session = Session()
 
 console = Log = init_loger(__name__)
 
+
+class Sess2dict(object):
+    def __init__(self,sess):
+        self.sess = sess
+
+    @property
+    def parse(self):
+        res = {}
+        tmp = self.sess.split('&')
+        for i in tmp:
+            k,v = i.split('|')
+            res[k] = v
+        return res
 
 def ExceptHandler(func):
     def wrapper(self, *args, **kwargs):
@@ -266,8 +279,11 @@ class Form(BaseForm):
                                     if i.__contains__(b':'):
                                         b_key, b_value = i.split(b':', 1)
                                         if b_key in (b'Content-Disposition', b'Content-Type'):
-                                            # possible chinese charecter . do not use bytes2str to b_value
-                                            tmp[bytes2str(b_key)] = bytes2defaultcoding(b_value)
+                                            # chinese character will raise Exception.
+                                            try:
+                                                tmp[bytes2str(b_key)] = bytes2defaultcoding(b_value)
+                                            except Exception as e:
+                                                Log.critical(traceback(e))
 
                                 self.form_data_info = tmp
                                 self.form_data_raw = form_data_raw.strip()
@@ -290,7 +306,7 @@ class Form(BaseForm):
     @property
     def parse(self):
         tmp = []
-        params = unquote(self.form_data).split('&')
+        params = UNQUOTE(self.form_data).split('&')
         for i in params:
             if i:
                 tmp.append(tuple(i.split('=')))
@@ -627,7 +643,7 @@ class HttpRequest(object):
         arguments = self.wrap_param()
         if arguments:
             tmp = []
-            params = unquote(arguments).split(AND)
+            params = UNQUOTE(arguments).split(AND)
             for i in params:
                 if i:
                     tmp.append(tuple(i.split(EQUALS)))
@@ -688,6 +704,60 @@ class HttpRequest(object):
 
     def transe_format(self,msg,type=''):
         raise NotImplementedError
+
+    def user_privilege(self,user):
+        '''
+        given the result of a user db-query,return it's permission
+        :param user: a namedtuple object. keys are ormEngine.User.__dict__
+
+        `can_read` `can_write`  `can_upload` `is_admin`
+        '''
+
+        if user and hasattr(user,'privilege'):
+            priv = user_level(PRIVILIGE(user.privilege))
+            return priv
+
+
+    def user_priv_dict(self,user):
+        '''
+        in order tp generate response objects better.
+        we transform them into dict format.
+        '''
+        tmp = {}
+        NONE = self.user_privilege(user)
+        tmp['is_admin'] = NONE.is_admin
+        tmp['can_read'] = NONE.can_read
+        tmp['can_write'] = NONE.can_write
+        tmp['can_upload'] = NONE.can_upload
+        return json.dumps(tmp)
+
+
+    def is_admin(self,user):
+        # if is admin user
+        return self.user_privilege(user).is_admin
+
+
+    def can_write(self,user):
+        # if user has write privilege
+        return self.user_privilege(user).can_write
+
+
+    def can_upload(self,user):
+        # if user has upload privilege
+        return self.user_privilege(user).can_upload
+
+
+    def can_read(self,user):
+        # read is amost normal user privilege. default 1 for all users.
+        return self.user_privilege(user).can_read
+
+    @property
+    def current_user(self):
+        cookies = self.get_cookie()
+        name = cookies['name']
+        priv = json.loads(cookies['level'])
+        tuples = namedtuple('xx',['name','can_read','can_write','can_upload','is_admin'])
+        return tuples._make([name,priv['can_read'],priv['can_write'],priv['can_upload'],priv['is_admin']])
 
 
 class Bad_Request(HttpRequest):
@@ -779,11 +849,14 @@ class DangerousRequest(HttpRequest):
             return date
 
     def clear_cookie(self):
+        sess = self.session
+
+        if sess in Session:
+            del Session[sess]
 
         tmp = ["_session="]
         self.add_cookie_attribute(tmp)
-        if hasattr(self,'_HttpRequest__cookie_jar'):
-            self.set_header("Set-Cookie", self._HttpRequest__cookie_jar)
+        self._set()
 
     def make_warning(self,key):
         '''
@@ -811,6 +884,12 @@ class DangerousRequest(HttpRequest):
                 callback()
         else:
             pass
+
+    def add_cookie_attribute(self,key):
+        raise NotImplementedError
+
+    def _set(self):
+        raise NotImplementedError
 
 
 class WrapRequest(DangerousRequest):
@@ -852,13 +931,12 @@ class WrapRequest(DangerousRequest):
         e.g. text, application ,..
         :return:  None
         '''
-        if 'text/plain' in content_type or 'text/html'  in  content_type:
+        if any(content_type.__contains__(x) for x in ['text/plain','text/html']):
             setattr(self,'_get_arguments_enable',1)
 
         # handling form data request.
-        elif 'x-www-form-urlencoded' in content_type or 'multipart/form-data' in content_type:
+        elif any(content_type.__contains__(x) for x in ['x-www-form-urlencoded','multipart/form-data']):
             form_data = self.wrap_param()
-
             if form_data:
                 # form is enable.
                 self.form = Form(self,form_data,self.headers)
@@ -872,7 +950,6 @@ class WrapRequest(DangerousRequest):
             # TODO HANDLER XML
             self.xml_content = ''
             setattr(self, '_get_xml_enable', 1)
-
         else:
             setattr(self, '_get_arguments_enable', 1)
 
@@ -1025,6 +1102,12 @@ class WrapRequest(DangerousRequest):
         else:
             return default
 
+
+    @property
+    def args(self):
+        # return an dict like object of request arguments.
+        return self.get_argument
+
     @_property
     def get_xml(self):
         '''
@@ -1094,45 +1177,51 @@ class WrapRequest(DangerousRequest):
                 return res,200
 
 
-    def get_cookie(self,key=None,safe_type='encrypt'):
+    def get_cookie(self,key=None,safe_type='session'):
         '''
         get the cookie from the header's Cookies: 'xxx'
         if key provides, then return the specific value of it
         :param key: key in cookies set.
         '''
-        cookies = self.get_header_attribute('Cookie')
-        if cookies and "_session" in cookies:
-            # safe encrypt cookies
-            safe_cookie_handler = self.application.settings.get('safe_cookie_handler', None)
-            if not safe_cookie_handler:
-                raise ApplicationError("Error when application initilize")
-            sess = cookies.split('=',1)[1]
-            if sess:
-                if safe_type == 'encrypt':
-                    try:
-                        res =  safe_cookie_handler.decrypt(sess.encode())
-                    except Exception:
-                        return
-                    temp  = res.decode()[:-2].split('&')
-                    tmp = {}
-                    for item in temp:
-                        i,j = item.split('|')
-                        tmp[i] = j
-                    if key:
-                        return tmp.get(key,None)
-                    return tmp
-                elif  safe_type == 'db_session':
-                    res =  Session.get(session=sess)
-                    print(res)
+        sess = self.session
+        if sess:
+            if safe_type == 'session':
+                if sess in Session:
+                    '''
+                    when debug restart the server . Session will be cleaned.
+                    So , restart server will make user logout directly.
+                    '''
+                    res =  Session[sess]
+                    return Sess2dict(res).parse
 
+
+            elif safe_type == 'encrypt':
+                safe_cookie_handler = self.application.settings.get('safe_cookie_handler', None)
+                if not safe_cookie_handler:
+                    raise ApplicationError("Error when application initilize."
+                                           "when using encrypt cookie , safe_cookie_handler must be "
+                                           "setted in application's settings.")
+
+                try:
+                    res =  safe_cookie_handler.decrypt(sess.encode())
+                except Exception:
+                    return
+                temp  = res.decode()[:-2].split('&')
+                tmp = {}
+                for item in temp:
+                    i,j = item.split('|')
+                    tmp[i] = j
+                if key:
+                    return tmp.get(key,None)
+                return tmp
         else:
-            # plain cookie
-            return cookies
+            # plain cookie or None cookie header
+            return sess
 
 
     def set_cookie(self, cookies_dict, max_age=None, expires=None,
                    path=None, domain=None, secure=False, httponly=False,
-                   safe_type='encrypt'):
+                   safe_type='session'):
         '''
         :param safe: for secure reason, when secure is not setted.
         use the encryption session in place of plain cookies.
@@ -1148,7 +1237,20 @@ class WrapRequest(DangerousRequest):
         if not cookies_dict and not isinstance(cookies_dict,dict):
             return
 
-        if safe_type == 'encrypt':
+        if safe_type == 'session':
+            '''
+            save the hash value of session and its corresponding state value.
+            - implementation with a lightweight ORM framework.
+            '''
+            s = ''.join(["{key}|{value}&".format(key=key, value=value)
+                            for key, value in cookies_dict.items()])[:-1]
+            digest = hashlib.md5(s.encode('utf-8')).hexdigest()
+            # keeping session in memory
+            Session[digest] = s
+
+            tmp = ["_session=" + digest + '; ']
+
+        elif safe_type == 'encrypt':
             '''
             this means using the crypto algorithm encrypt cookies and do not use database
             keeping the session.
@@ -1163,17 +1265,6 @@ class WrapRequest(DangerousRequest):
             token = safe_cookie_handler.encrypt(session.encode())
             tmp = ["_session="+token.decode()+'; ']
 
-        elif safe_type == 'db_session':
-            '''
-            save the hash value of session and its corresponding state value.
-            - implementation with a lightweight ORM framework.
-            '''
-            s = ''.join(["{key}|{value}&".format(key=key, value=value)
-                            for key, value in cookies_dict.items()])[:-1]
-            digest = hashlib.md5(s.encode('utf-8')).hexdigest()
-            session = Session(id='',session=digest,content=s)
-            session.save()
-            tmp = ["_session=" + digest + '; ']
         else:
             '''
             plain cookie is not suggest using.
@@ -1182,11 +1273,12 @@ class WrapRequest(DangerousRequest):
             tmp = ["{key}={value}; ".format(key=key, value=value)
                    for key, value in cookies_dict.items()]
 
+
         self.add_cookie_attribute(tmp,max_age=max_age, expires=expires,
                    path=path, domain=domain, secure=secure, httponly=httponly)
 
-        if hasattr(self,'_HttpRequest__cookie_jar'):
-            self.set_header("Set-Cookie", self._HttpRequest__cookie_jar)
+        self._set()
+
 
 
     def clear_cookie(self):
@@ -1196,5 +1288,29 @@ class WrapRequest(DangerousRequest):
         super(WrapRequest,self).clear_cookie()
 
 
+    def _set(self):
+        Vampire = ''.join(['_', self.__class__.__base__.__base__.__name__, '__cookie_jar'])
+        if hasattr(self, Vampire):
+            self.set_header("Set-Cookie", getattr(self, Vampire))
 
 
+    @property
+    def session(self):
+        cookies = self.get_header_attribute('Cookie')
+        if cookies and "_session" in cookies:
+            sess = cookies.split('=', 1)[1]
+            return sess
+        return cookies
+
+
+    def user_privilege(self,user):
+        '''
+        in order to make subclassed compatible with function
+        consistency
+        '''
+        super(WrapRequest,self).user_privilege(user)
+
+
+    def current_user(self):
+
+        return super(WrapRequest,self).current_user

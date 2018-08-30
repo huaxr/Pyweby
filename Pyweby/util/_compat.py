@@ -9,8 +9,18 @@ else:
 
 if PY3:
     STRING = (str,bytes)
+    from urllib.parse import urlparse,unquote
+    from functools import reduce
+    REDUCE = reduce
+    URLPARSE = urlparse
+    UNQUOTE = unquote
+
 else:
     STRING = (str, unicode,bytes)
+    from urllib import urlparse, unquote
+    REDUCE = reduce
+    URLPARSE = urlparse
+    UNQUOTE = unquote
 
 class _None(object):
 
@@ -28,7 +38,6 @@ bytes2str = lambda x: x.decode() if isinstance(x,bytes) else x
 str2bytes = lambda x:x.encode() if isinstance(x,str) else x
 
 SYSTEM = sys.platform
-
 if SYSTEM.startswith('win'):
     bytes2defaultcoding = lambda x: x.decode('gbk') if isinstance(x,bytes) else x
 else:

@@ -3,6 +3,9 @@ from .Looper import PollCycle
 from .config import Configs
 from util.logger import Logger,traceback
 from cryptography.fernet import Fernet as Cipher
+import sys
+import time
+from threading import Timer
 
 Log = Logger(logger_name=__name__)
 
@@ -67,10 +70,22 @@ class _select(object):
     def close(self):
         raise NotImplementedError
 
+def loading(t):
+    for _ in range(t):
+        for i in ["[ - ]","[ \ ]","[ | ]","[ / ]"]:
+            sys.stdout.write("\r" + "%s Server launching..." %i )
+            time.sleep(0.2)
+            sys.stdout.flush()
+        sys.stdout.write('\r')
+    sys.stdout.write('\r')
 
 class SelectCycle(PollCycle,Configs.BarrelCheck):
 
     def __init__(self,*args, **kwargs):
+        # Yeap! im the great pretender adrift in a world of my own.
+        # Disable as you like.
+        Timer(0.1, loading(4))
+
         '''
         this is the main loop started place
         '''

@@ -13,7 +13,7 @@ def traceback(msg,type=None):
     _name = os.path.basename(sys._getframe(1).f_code.co_filename)
     _func = sys._getframe(1).f_code.co_name
     line = str(sys._getframe(1).f_lineno)
-    res =  ' |  '.join([str(msg),_name,_func,line])
+    res =  ' |  '.join([str(msg),"file:"+_name,_func,"line:"+line])
     if type == 'error':
         return '[!] ' + res
     elif type == 'info':

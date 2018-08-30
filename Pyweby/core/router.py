@@ -115,7 +115,6 @@ class DistributeRouter(Router):
 
 
 class Looper(DistributeRouter):
-
     def __init__(self,handlers=None,enable_manager=False,*args,**kwargs):
         self.handlers = handlers
         self.enable_manager = enable_manager

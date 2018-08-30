@@ -16,7 +16,7 @@ from .config import Configs
 from handle.request import WrapRequest,HttpRequest
 from handle.response import WrapResponse
 from handle.exc import NoRouterHandlers,FormatterError
-from util.Engines import  EventManager,_EventManager,EventResponse,EventRecv
+from util.Engines import  EventManager,_EventManager,EventResponse,EventFunc
 from util.logger import init_loger,traceback
 from util._compat import B_DCRLF,str2bytes
 
@@ -54,10 +54,7 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
     '''
     Threading. local () is a method that holds a global variable,
     but it is accessible only to the current thread
-
     '''
-    LOCAL = threading.local()
-
     pair = {}
     connection = {}
     request = {}
@@ -93,20 +90,13 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
         else:
             self.context = None
 
-
-        self.eventManager = None
         '''
         enable EventManager, which means getting callback future
         to be achieve soon.
+        self.queue if an Queue() for callback results.
         '''
-        self.enable_manager = kwargs.get('enable_manager',False)
-        if self.enable_manager:
-            # thread event manager.
-            self.eventManager = EventManager()
-            # process event manager
-            self.peventManager =_EventManager()
+        self.swich_eventmanager_on()
 
-            self.swich_eventmanager_on()
 
         self.__EPOLL = hasattr(select, 'epoll')
         self._re = re.compile(b'Content-Length: (.*?)\r\n')
@@ -121,12 +111,20 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
         #and getting the events from the manager's Queue, if the Queue.get()
         #returns future object, means we catch the add_done_callback future
         #in finished. remember pass the sock obj for send result.
-        self.eventManager.start()
-        self.peventManager.start()
+
+        # thread event manager. self.queue for callback result
+        self.queue = Queue.Queue()
+        self.eventManager = EventManager()
+        self.peventManager =_EventManager(self.queue)
+
+        for thread in [self.eventManager,self.peventManager]:
+            thread.start()
+
 
     def swich_eventmanager_off(self):
-        self.eventManager.stop()
-        self.peventManager.stop()
+        # turning down/ shutting up
+        for thread in [self.eventManager,self.peventManager]:
+            thread.stop()
 
 
     def listen(self,port=None):
@@ -179,7 +177,6 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
                 continue
 
             for sock,event in fd_event_pair:
-
                 if event & Configs.R:
                     if sock is self.server:
                         conn, address = sock.accept()
@@ -194,25 +191,18 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
                                 conn = self.ssl(ssl_wrapper)
                                 conn.setblocking(0)
 
-                        except ssl.SSLError as e:
+                        except (ssl.SSLError,OSError) as e:
                             Log.info(traceback(e))
                             self.close(conn)
                             continue
 
-                        except OSError as e2:
-                            Log.info(traceback(e2))
-                            self.close(conn)
-                            continue
-
                         else:
-
                             '''
                             for convenience and no blocking program, we put the connection into inputs loop,
                             with the next cycling, this conn's fileno being ready condition, and can be append 
                             by readable list by select loops
                             '''
-                            # trigger add_sock to change select.select(pool)'s pool, and change the listening
-                            # event IO Pool
+                            # trigger add_sock to change select.select(pool)'s pool, and change the listening event IO Pool
                             self._impl.add_sock(conn, Configs.R)
                             # define the sock:Queue pair for message
                             self.pair[conn] = Queue.Queue()
@@ -221,95 +211,42 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
                         if sock.fileno() != -1:
                             # Due to active or passive reasons, socket shutdown is not processed in time,
                             # and it is necessary to determine whether socket is closed.
+                            # data_ = PollCycle.blocking_recv(self,sock)
+                            # data = b''.join(data_)
+                            event = EventFunc(PollCycle.blocking_recv, self, sock)
+                            self.peventManager.addEvent(event)
+                            '''
+                            here is the request origin.
+                            PollCycle is origin from SelectCycle, application will be registered 
+                            at there
 
-                            if debug:
-                                # this part is not support. cause some problem i cant't handle yet!
-                                # event trigger could not success.
-                                event = EventRecv(sock=sock,_impl=self._impl,
-                                                  pair=self.pair,PollCycle=self,WrapRequest=WrapRequest,handlers=self.handlers,
-                                                  application =self.application)
-                                self.peventManager.addEvent(event)
-                                self.modify(sock)
+                            the define of the main.py has two ways:
+                            1. server = loop(handlers=[(r'/hello',testRouter2),])
+                            2. server = loop(Barrel) 
+
+                            if 2 is choosen to be the method, with a series of examinations,
+                            self.application will be set the Barrel instance
+
+                            '''
+                            # callback result from _EventMaster.
+                            try:
+                                data = self.queue.get()
+                            except Queue.Empty:
                                 continue
 
-                            else:
-                                data_ = []
-                                length = 0
-                                pos = 0
-                                while 1:
-                                    try:
-                                        data = sock.recv(65535)
-                                    except (socket.error,Exception) as e:
-                                        Log.info(traceback(e))
-                                        self.close(sock)
-                                        continue
-
-                                    if data.startswith(b'GET'):
-                                        if data.endswith(B_DCRLF):
-                                            data_.append(data)
-                                            break
-                                        else:
-                                            data_.append(data)
-
-                                    elif data.startswith(b'POST'):
-                                        # TODO, blocking recv , how to solving.
-                                        # server side uploading .
-                                        sock.setblocking(1)
-                                        length = int(self._re.findall(data)[0].decode())
-                                        header_part,part_part = self.__re.split(data,1)
-
-                                        data_.extend([header_part,B_DCRLF,part_part])
-                                        pos = len(part_part)
-                                        self._POST = True
-
-                                    if self._POST:
-                                        if length <= pos:
-                                            if data:
-                                                # always put the last pieces of raw data in the list
-                                                # otherwise, the data will be incomplete and the file
-                                                # will fail.
-                                                # after this, break while, recv complete.
-                                                data_.append(data)
-                                            break
-                                        else:
-                                            if data:
-                                                data_.append(data)
-                                                pos += len(data)
-
-                                data = b''.join(data_)
-
-                                '''
-                                here is the request origin.
-                                PollCycle is origin from SelectCycle, application will be registered 
-                                at there
-
-                                the define of the main.py has two ways:
-                                1. server = loop(handlers=[(r'/hello',testRouter2),])
-                                2. server = loop(Barrel) 
-
-                                if 2 is choosen to be the method, with a series of examinations,
-                                self.application will be set the Barrel instance
-
-                                '''
+                            if data:
                                 data = WrapRequest(data, lambda x: dict(x), handlers=self.handlers,
                                                    application=self.application, sock=sock)
+                                # for later usage, when the next Loop by the kernel select, that's
+                                # will be reuse the data putting in it.
+                                if sock in self.pair:
+                                    self.pair[sock].put(data)
+                                    self._impl.add_sock(sock, Configs.W)
 
-                                if data:
-                                    # for later usage, when the next Loop by the kernel select, that's
-                                    # will be reuse the data putting in it.
-                                    if sock in self.pair:
-                                        self.pair[sock].put(data)
-                                        self._impl.add_sock(sock, Configs.W)
-                                    else:
-                                        continue
-
-                                else:
-                                    # if there is no data receive, that means socket has been disconnected
-                                    # so , let's remove it now!
-                                    self.close(sock)
-                                # data = sock.recv(60000)
-                        else:
-                            continue
+                            else:
+                                # if there is no data receive, that means socket has been disconnected
+                                # so , let's remove it now!
+                                self.close(sock)
 
                 elif event & Configs.W:
                     try:
@@ -325,40 +262,10 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
                         # consider future.result() calling and non-blocking , we should
                         # activate the EventManager, and trigger sock.send() later in the
                         # EventManager sub threads Looping.
-                        if not debug:
-                            writers = WrapResponse(msg,self.eventManager,sock,self)
-                            event = EventResponse(writers)
-                            self.eventManager.addRequestWrapper(event)
+                        writers = WrapResponse(msg,self.eventManager,sock,self)
+                        event = EventResponse(writers)
+                        self.eventManager.addRequestWrapper(event)
 
-                        else:
-                            writers = WrapResponse(msg,self.eventManager,sock,self)
-                            body = writers.gen_body(prefix="\r\n\r\n")
-                            if body:
-                                bodys = str2bytes(body)
-
-                                # employ curl could't deal with 302
-                                # you should try firefox or chrome instead
-                                sock.send(bodys)
-                                # do not call sock.close, because the sock still in the select,
-                                # for the next loop, it will raise ValueEror `fd must not -1`
-
-                                # 8.27 change the close to modify. long connection is needed.
-                                # self.modify(sock)
-                                self.close(sock)
-                            else:
-                                '''
-                                Question: maybe body is None, just close it means connection terminate.
-                                and client will receive `Empty reply from server`?
-    
-                                Answer:  No. if exception happens, or Future is waiting for
-                                the result() in the EventMaster, if you close the sock, you
-                                will never send back message from the future!
-                                Keep an eye on it!
-                                '''
-                                # self.Log.info(body)
-                                # self.close(sock)
-                                # we can't set None to it
-                                continue
                 else:
                     Log.info(traceback("other reason, close sock","error"))
                     self.close(sock)
@@ -553,3 +460,51 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
 
         else:
             return wrapper.conn
+
+    @classmethod
+    def blocking_recv(cls,self, sock):
+        sock.settimeout(5)
+        data_ = []
+        length = 0
+        pos = 0
+        while 1:
+            try:
+                data = sock.recv(65535)
+            except (socket.error, Exception) as e:
+                Log.info(traceback(e))
+                self.close(sock)
+                continue
+
+            if data.startswith(b'GET'):
+                if data.endswith(B_DCRLF):
+                    data_.append(data)
+                    break
+                else:
+                    data_.append(data)
+
+            elif data.startswith(b'POST'):
+                # TODO, blocking recv , how to solving.
+                # server side uploading .
+                sock.setblocking(1)
+                length = int(self._re.findall(data)[0].decode())
+                header_part, part_part = self.__re.split(data, 1)
+
+                data_.extend([header_part, B_DCRLF, part_part])
+                pos = len(part_part)
+                self._POST = True
+
+            if self._POST:
+                if length <= pos:
+                    if data:
+                        # always put the last pieces of raw data in the list
+                        # otherwise, the data will be incomplete and the file
+                        # will fail.
+                        # after this, break while, recv complete.
+                        data_.append(data)
+                    break
+                else:
+                    if data:
+                        data_.append(data)
+                        pos += len(data)
+
+        return b''.join(data_)

@@ -286,10 +286,11 @@ class WrapResponse(DangerResponse):
         :param method: support `get`,`post` , later usage is limit now.
         :return:
         '''
-        if hasattr(router, 'login_require'):
+        if hasattr(router, '_login_require'):
             cookies = router.request.get_cookie()
+
             # cookies may be None. if None means Unauthorized.
-            if cookies and cookies.get('is_login', False) == 'True':
+            if cookies:
                     nexter = getattr(router, method)
             else:
                 r = Unauthorized()
@@ -414,7 +415,7 @@ class WrapResponse(DangerResponse):
         return header + "\r\n\r\n"
 
 
-    def gen_body(self,  prefix="\r\n\r\n", if_need_result = False):
+    def gen_body(self,  prefix="\r\n\r\n", if_need_result = False,debug=True):
         '''
         generator the body contains headers
         :param prefix: this prefix to tail whether the response package is integrity
@@ -423,11 +424,14 @@ class WrapResponse(DangerResponse):
             tmp = self.discern_result(time_consuming_op=self.switch_method(self.method))
             if isinstance(tmp, types.MethodType):
                 # Do not try execute tmp() twice.
-                try:
+                if debug:
                     X_X_X = tmp()
-                except Exception as e:
-                    Log.critical(traceback(e))
-                    return self.not_future_body(500, 'internal server error(program error)', prefix=prefix)
+                else:
+                    try:
+                        X_X_X =tmp()
+                    except Exception as e:
+                        Log.critical(traceback(e))
+                        return self.not_future_body(500, 'internal server error(program error)', prefix=prefix)
 
                 # when no result return.
                 if  X_X_X is None:
@@ -532,3 +536,22 @@ class WrapResponse(DangerResponse):
                                 str(json.dumps(body))
 
 
+    def render_embed_css(self, css_embed):
+        return b'<style type="text/css">\n' + b'\n'.join(css_embed) + \
+               b'\n</style>'
+
+    def render_embed_js(self, js_embed):
+        return b'<script type="text/javascript">\n//<![CDATA[\n' + \
+               b'\n'.join(js_embed) + b'\n//]]>\n</script>'
+
+
+    def render_linked_css(self, css_files_list):
+
+        return ''.join('<link href="' + x + '" '
+                       'type="text/css" rel="stylesheet"/>'
+                       for x in css_files_list)
+
+    def render_linked_js(self, js_files):
+        return ''.join('<script src="' + x +
+                       '" type="text/javascript"></script>'
+                       for x in js_files)

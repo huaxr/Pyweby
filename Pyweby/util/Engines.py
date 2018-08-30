@@ -123,8 +123,9 @@ class _Process(Process):
 
 
 class _EventManager(Switcher):
-    def __init__(self):
+    def __init__(self,q):
         self._eventQ = Queue()
+        self.callback_queue = q
         self._active = False
         self._thread = threading.Thread(target = self._run_events)
         self._re = re.compile(b'Content-Length: (.*?)\r\n')
@@ -136,83 +137,25 @@ class _EventManager(Switcher):
             try:
                 # The blocking time of the event is set to 1 second.
                 event = self._eventQ.get(block = True, timeout = 1)
-                self.eventHandler(event)
+                if isinstance(event,EventFunc):
+                    result = self.eventFunc(event)
+                    if result:
+                        self.callback_queue.put(result)
             except Empty:
                 pass
 
-    def eventHandler(self,event):
-
+    def eventFunc(self,event):
+        func = event.func
+        selfer = event.selfer
         sock = event.sock
-        if sock.fileno() > 0:
-            return
-        impl = event._impl
-        pair = event.pair
-        cycle = event.PollCycle
-        WrapRequest = event.WrapRequest
-        handlers = event.handlers
-        app = event.application
-
-        data_ = []
-        length = 0
-        pos = 0
-
-        while 1:
-            try:
-                data = sock.recv(65535)
-            except (socket.error, Exception) as e:
-                Log.info(traceback(e))
-                cycle.close(sock)
-                continue
-
-            if data.startswith(b'GET'):
-                if data.endswith(B_DCRLF):
-                    data_.append(data)
-                    break
-                else:
-                    data_.append(data)
-
-            elif data.startswith(b'POST'):
-                # TODO, blocking recv , how to solving.
-                # server side uploading .
-                sock.setblocking(1)
-                length = int(self._re.findall(data)[0].decode())
-                header_part, part_part = self.__re.split(data, 1)
-
-                data_.extend([header_part, B_DCRLF, part_part])
-                pos = len(part_part)
-                self._POST = True
-
-            if self._POST:
-                if length <= pos:
-                    if data:
-                        data_.append(data)
-                    break
-                else:
-                    if data:
-                        data_.append(data)
-                        pos += len(data)
-
-            data = b''.join(data_)
-
-            data = WrapRequest(data, lambda x: dict(x), handlers=handlers,
-                               application=app, sock=sock)
-            if data:
-                if sock in pair:
-                    pair[sock].put(data)
-                    impl.add_sock(sock, 0x4)
-                else:
-                    continue
-
-            else:
-                # if there is no data receive, that means socket has been disconnected
-                # so , let's remove it now!
-                cycle.close(sock)
-
+        if sock.fileno() != -1:
+            return func(selfer,sock)
 
     def addEvent(self,event):
         self._eventQ.put(event)
 
-        
+
+
 class EventManager(Switcher):
     def __init__(self):
         """
@@ -370,7 +313,7 @@ class Eventer(object):
         pass
 
     def __repr__(self):
-        return 'Event master Object'
+        return 'Pyweby Event master'
 
     def __reduce__(self):
         return 'Event Master'
@@ -416,3 +359,11 @@ class EventRecv(Eventer):
         self.handlers = handlers
         self.application = application
         super(EventRecv,self).__init__()
+
+
+class EventFunc(Eventer):
+    def __init__(self,func=None,selfer=None,sock=None):
+        self.func = func
+        self.selfer = selfer
+        self.sock = sock
+        super(EventFunc,self).__init__()
