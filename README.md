@@ -13,6 +13,10 @@ Very Sexy Web Framework. Savvy?
 1. normal form handled. (TODO others Content-Type)
 1. session with ORM. Provides another secure cookie session mechanism.
 1. file uploading. big MB file will blocking main thread.
+1. raise_status(400) like abort(400) does. will throw an Exception to client.
+1. wrapperd all interface(9.3) in self(HttpRequest),e.g. you can use self.request.file, self.file as you want. they are the same.
+1. More flexible and smooth ORM.
+1. Addressing method supporting regular URI .e.g.（ (r'/string/([0-9]+)/sss/([0-5])/', testRouter),）
 1. others: log system. cache system , malicious request analysis and disinfect and so on..
 1. enhancing capacity is still a mystery, pay close attention to it [https://github.com/huaxr/Pyweby/]()
 
@@ -38,13 +42,16 @@ from util.ormEngine import User
 
 class testRouter(HttpRequest):
     def post(self):
-        # test for redirect
-        return self.request.redirect("/2?key=2")
+        # ignore_cache is a cache enable flag
+        return self.render("upload.html",name=[1,2,3],ignore_cache=False)
 
     def get(self):
-        # ignore_cache is a cache enable flag
-        return self.request.render("upload.html",name=[1,2,3],ignore_cache=False)
-
+        # return self.redirect("/2?key=2")
+        # self.raise_status(401,"sorry, you are not allowd")
+        # return self.render("upload.html", name=[1, 2, 3], ignore_cache=False)
+        c = User.get(user='hua').exclude(passwd='123').commit()
+        for i in c:
+            print(i)
 
 class testRouter2(HttpRequest):
     executor = Executor(COUNT)
@@ -55,15 +62,17 @@ class testRouter2(HttpRequest):
         return "sleeper call over, %d" %(counts)
 
     def get(self):
-        arguments = self.request.get_arguments('key', 'defalut')
-        value = int(arguments)
+        arguments = self.get_arguments('key', 'defalut')
+        try:
+            value = int(arguments)
+        except Exception:
+            value = 1
         result = self.sleeper(value)
         return result, 200
 
     @restful  # test from restful api
     def post(self):
-        return self.request.form.lname   # form support
-        # return self.request.get_arguments('lname','xxxx')
+        return self.form.lname   # form support
 
 class cookie(HttpRequest):
     @restful           # use restful before the cache_result !
@@ -73,24 +82,26 @@ class cookie(HttpRequest):
         return "Hello World",200
 
     def get(self):
-        yy = self.request.get_cookie()
+        yy = self.get_cookie()
         return yy
 
 
 @login_require
 class admin(HttpRequest):
     def get(self):
-        # cookies = self.request.get_cookie()
-        # name = cookies['name']
-        # priv = cookies['level']
-        user = self.request.current_user()
-        return "admin user %s, your priv is %s" %(user.name,user.can_upload)
+        user =  self.current_user or self.request.current_user()
+        if user:
+            return "admin user %s, your priv is %s" %(user.name,user.can_upload)
+        else:
+            self.set_header("xxxxx","yyy")
+            self.raise_status(401)
 
     def post(self):
-        user = self.request.current_user()
-        if user.is_admin:
-            filename = self.request.file.filename
-            self.request.file.saveto("C:\\"+filename)
+        user = self.current_user
+        if user.can_upload:
+            filename = self.file.filename
+            print(filename)
+            self.file.saveto("C:\\"+filename)
             return "success"
         else:
             return "sorry , only is_admin can upload files"
@@ -98,29 +109,28 @@ class admin(HttpRequest):
 
 class register(HttpRequest):
     def get(self):
-        name = self.request.get_arguments('name', '')
-        passwd = self.request.get_arguments('passwd', '')
-        level = self.request.get_arguments('level', 'R')
+        name = self.get_arguments('name', '')
+        passwd = self.get_arguments('passwd', '')
+        level = self.get_arguments('level', 'R').upper()
         with User(id='',user=name,passwd=passwd,privilege=level,information={'sign':'never give up','nickname':'华'}) as u:
             u.save()
         return "register ok. please login."
 
 
-
 class logout(HttpRequest):
     def get(self):
-        self.request.clear_cookie()
+        self.clear_cookie()
         return "clean ok"
 
 
 class login(HttpRequest):
     def get(self):
-        name = self.request.get_arguments('name', '')
-        passwd = self.request.get_arguments('passwd', '')
+        name = self.get_arguments('name', '')
+        passwd = self.get_arguments('passwd', '')
         user =  User.get(user=name,passwd=passwd)
 
         if user and self.can_read(user):
-            self.request.set_cookie({'name':name,'level':self.user_priv_dict(user)})
+            self.set_cookie({'name':name,'level':self.user_priv_dict(user)})
             return "%s login ok" %name + self.user_priv_dict(user)
         # user.is_admin()
 
@@ -128,13 +138,13 @@ class login(HttpRequest):
 class Barrel(Configs.Application):
     cls_test = 'cls test'
     def __init__(self):
-        self.handlers = [(r'/2',testRouter2),
-                         (r'/1', testRouter),
-                         (r'/cookie', cookie),
-                         (r'/admin', admin),
-                         (r'/register', register),
-                         (r'/logout', logout),
-                         (r'/login', login),]
+        self.handlers = [(r'/2/',testRouter2),
+                         (r'/string/([0-9]+)/sss/([0-5])/', testRouter),
+                         (r'/cookie/', cookie),
+                         (r'/admin/', admin),
+                         (r'/register/', register),
+                         (r'/logout/', logout),
+                         (r'/login/', login),]
 
         self.settings = {
             "ssl_options": {"ssl_enable": 1,
@@ -161,6 +171,7 @@ if __name__ == '__main__':
     server = loop(Barrel) or loop(handlers=[(r'/hello',testRouter2),],enable_manager=1)
     server.listen(8888)
     server.server_forever(debug=False)
+
 
 
 
@@ -334,14 +345,36 @@ class testRouter4(HttpRequest):
         return "success"
 ```
 
+### raise_status
+- when you raise the function and give an status(int) or msg(str). return the exception you set:e.g.
+```python
+def get(self):
+    self.raise_status(401,"sorry, you are not allowd")
+```
+![mark](http://pacfhd1z8.bkt.clouddn.com/python/180903/gBf0HaKFF4.png?imageslim)
+
+
+### flexible and smooth ORM
+- using this like below will search User Table like sql: 
+'select * from User where user=hua and passwd!=123'
+```python
+def get(self):
+    c = User.get(user='hua').exclude(passwd='123').commit()
+    assert isinstance(c,types.GenType)
+```
+
+### regex uri
+- if you referer "https://10.74.154.45:8888/string/123/sss/2/" , than you can use self.matcher get the result:
+[('123','2')]
+
 
 ### log
 - every request will gererate a log. just like this:
 ```
-[18:57:14] Server https://10.74.154.57:443 started! fd=[368]
-[18:57:20] GET		10.74.154.57		/
-[18:57:20] GET		10.74.154.57		/hello?key=2
-[18:57:38] GET		10.74.154.57		/test?name=pyweby
+[16:53:52] [*] Hello, administrator@Pyweby master.
+[16:53:53] [*] Server https://10.74.154.45:8888 started! fd=[404]
+[16:53:53] Method			From			Index
+[16:53:58] GET		10.74.154.45		/string/123/sss/2/
 ```
 
 
