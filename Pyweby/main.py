@@ -12,13 +12,17 @@ from util.ormEngine import User
 
 class testRouter(HttpRequest):
     def post(self):
-        # test for redirect
-        return self.request.redirect("/2?key=2")
+        # ignore_cache is a cache enable flag
+        return self.render("upload.html",name=[1,2,3],ignore_cache=False)
 
     def get(self):
-        # ignore_cache is a cache enable flag
-        return self.request.render("upload.html",name=[1,2,3],ignore_cache=False)
-
+        # return self.redirect("/2?key=2")
+        # self.raise_status(401,"sorry, you are not allowd")
+        print(self.matcher)
+        # return self.render("upload.html", name=[1, 2, 3], ignore_cache=False)
+        # c = User.get(user='hua').exclude(passwd='123').commit()
+        # for i in c:
+        #     print(i)
 
 class testRouter2(HttpRequest):
     executor = Executor(COUNT)
@@ -29,15 +33,17 @@ class testRouter2(HttpRequest):
         return "sleeper call over, %d" %(counts)
 
     def get(self):
-        arguments = self.request.get_arguments('key', 'defalut')
-        value = int(arguments)
+        arguments = self.get_arguments('key', 'defalut')
+        try:
+            value = int(arguments)
+        except Exception:
+            value = 1
         result = self.sleeper(value)
         return result, 200
 
     @restful  # test from restful api
     def post(self):
-        return self.request.form.lname   # form support
-        # return self.request.get_arguments('lname','xxxx')
+        return self.form.lname   # form support
 
 class cookie(HttpRequest):
     @restful           # use restful before the cache_result !
@@ -47,24 +53,26 @@ class cookie(HttpRequest):
         return "Hello World",200
 
     def get(self):
-        yy = self.request.get_cookie()
+        yy = self.get_cookie()
         return yy
 
 
 @login_require
 class admin(HttpRequest):
     def get(self):
-        # cookies = self.request.get_cookie()
-        # name = cookies['name']
-        # priv = cookies['level']
-        user = self.request.current_user()
-        return "admin user %s, your priv is %s" %(user.name,user.can_upload)
+        user =  self.current_user or self.request.current_user()
+        if user:
+            return "admin user %s, your priv is %s" %(user.name,user.can_upload)
+        else:
+            self.set_header("xxxxx","yyy")
+            self.raise_status(401)
 
     def post(self):
-        user = self.request.current_user()
-        if user.is_admin:
-            filename = self.request.file.filename
-            self.request.file.saveto("C:\\"+filename)
+        user = self.current_user
+        if user.can_upload:
+            filename = self.file.filename
+            print(filename)
+            self.file.saveto("C:\\"+filename)
             return "success"
         else:
             return "sorry , only is_admin can upload files"
@@ -72,29 +80,28 @@ class admin(HttpRequest):
 
 class register(HttpRequest):
     def get(self):
-        name = self.request.get_arguments('name', '')
-        passwd = self.request.get_arguments('passwd', '')
-        level = self.request.get_arguments('level', 'R')
+        name = self.get_arguments('name', '')
+        passwd = self.get_arguments('passwd', '')
+        level = self.get_arguments('level', 'R').upper()
         with User(id='',user=name,passwd=passwd,privilege=level,information={'sign':'never give up','nickname':'华'}) as u:
             u.save()
         return "register ok. please login."
 
 
-
 class logout(HttpRequest):
     def get(self):
-        self.request.clear_cookie()
+        self.clear_cookie()
         return "clean ok"
 
 
 class login(HttpRequest):
     def get(self):
-        name = self.request.get_arguments('name', '')
-        passwd = self.request.get_arguments('passwd', '')
+        name = self.get_arguments('name', '')
+        passwd = self.get_arguments('passwd', '')
         user =  User.get(user=name,passwd=passwd)
 
         if user and self.can_read(user):
-            self.request.set_cookie({'name':name,'level':self.user_priv_dict(user)})
+            self.set_cookie({'name':name,'level':self.user_priv_dict(user)})
             return "%s login ok" %name + self.user_priv_dict(user)
         # user.is_admin()
 
@@ -102,13 +109,13 @@ class login(HttpRequest):
 class Barrel(Configs.Application):
     cls_test = 'cls test'
     def __init__(self):
-        self.handlers = [(r'/2',testRouter2),
-                         (r'/1', testRouter),
-                         (r'/cookie', cookie),
-                         (r'/admin', admin),
-                         (r'/register', register),
-                         (r'/logout', logout),
-                         (r'/login', login),]
+        self.handlers = [(r'/2/',testRouter2),
+                         (r'/string/([0-9]+)/sss/([0-5])/', testRouter),
+                         (r'/cookie/', cookie),
+                         (r'/admin/', admin),
+                         (r'/register/', register),
+                         (r'/logout/', logout),
+                         (r'/login/', login),]
 
         self.settings = {
             "ssl_options": {"ssl_enable": 1,

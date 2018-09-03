@@ -1,20 +1,31 @@
 import abc
 import json
-
 import pymongo
 import six
 import pymysql
 import contextlib
+
+
 from ._compat import URLPARSE
 from .logger import traceback,init_loger
 from collections import namedtuple
-from core.config import Configs
-from  handle.auth import PRIVILIGE
+from handle.exc import ORMError
 
 
 Log = init_loger(__name__)
 # import warnings
 # warnings.filterwarnings("ignore")
+
+class MGdict(dict):
+    def __getattr__(self, attr):
+        try:
+            return self[attr]
+        except KeyError:
+            raise AttributeError(attr)
+    def __setattr__(self, attr, value): self[attr] = value
+    def __iadd__(self, rhs): self.update(rhs); return self
+    def __add__(self, rhs): d = MGdict(self); d.update(rhs); return d
+
 
 class DBEngine(object):
     def __init__(self,db_uri=None):
@@ -163,11 +174,23 @@ class ModelMetaclass(type):
         return type.__new__(cls, name, bases, attrs)
 
 
+
+OP = MGdict(
+    AND='AND',
+    OR='OR',
+    NOT = '!=',
+    WHERE = 'WHERE',
+ )
+
+
+OP += {'EQUAL':'=','GT':'>','LT':'<'}
+
+
 @six.add_metaclass(ModelMetaclass)
 class Model(dict):
 
-    def __init__(self, **kw):
-
+    def __init__(self, sql=None,**kw):
+        self.sql = sql
         self.kw = kw
         super(Model,self).__init__()
 
@@ -190,6 +213,11 @@ class Model(dict):
                 #  the value into table using dumps too.
                 values.append(json.dumps(value))
 
+        if not values:
+            sql = "select * from `{}`".format(cls.__table__)
+            setattr(cls, 'sql', sql)
+            return cls
+
         if fields or values:
 
             zip_pair = zip(fields, values)
@@ -200,20 +228,50 @@ class Model(dict):
             cond = ''.join(tmp).rstrip('and ')
 
             sql = "select * from `{}` where {}".format(cls.__table__,cond)
-            cls.DB.session.execute(sql)
+            setattr(cls,'sql',sql)
+            return cls
 
-            query_result = cls.DB.session.fetchone()
-            if query_result:
-                tuples = namedtuple('xx',list(allow_fileds))
-                # now using json.loads make it right.
-                namedTuple = tuples._make([json.loads(str(i)) for i in query_result])
-                return namedTuple
 
+    @classmethod
+    def exclude(cls,**kwargs):
+
+        if not hasattr(cls,'sql'):
+            raise ORMError("Must call Model.get() before exclude.")
+
+        fields,values,tmp = [] ,[],[]
+
+        allow_fileds = cls.__mappings__.keys()
+        for field,value in kwargs.items():
+            if field in allow_fileds:
+                fields.append(field)
+                values.append(json.dumps(value))
+
+        if fields or values:
+            if cls.sql.__contains__('where'):
+                tmp.append(OP.AND)
+            else:
+                tmp.append(OP.WHERE)
+
+            zip_pair = zip(fields, values)
+            for i,j in zip_pair:
+                tmp.append("{} {} '{}'".format(i, OP.NOT, j))
+
+        excluder = ' '+ ' '.join(tmp)
+        setattr(cls, 'sql', cls.sql + excluder)
+        # print(cls.sql)
+        return cls
 
     def create_table(self):
         create_table_sql = "create table if not exists {} {} {}" \
             .format(self.__table__, tuple(self.__mappings__.values()), "ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;")
         self.session.execute(create_table_sql)
+
+
+    @classmethod
+    def cls_create_table(cls):
+        create_table_sql = "create table if not exists {} {} {}" \
+            .format(cls.__table__, tuple(cls.__mappings__.values()), "ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;")
+        cls.DB.session.execute(create_table_sql)
 
 
     def save(self):
@@ -238,6 +296,25 @@ class Model(dict):
             self.create_table()
             self.save()
 
+
+    @classmethod
+    def commit(cls,named='Default',):
+        try:
+            cls.DB.session.execute(cls.sql)
+            cls.DB.db.commit()
+        except pymysql.err.ProgrammingError:
+            cls.cls_create_table()
+            cls.commit()
+
+        query_result = cls.DB.session.fetchall()
+        if query_result:
+            tuples = namedtuple(named,list(cls.allow_fileds()))
+            # now using json.loads make it right.
+            for j in query_result:
+                namedTuple = tuples._make([json.loads(str(i)) for i in j])
+                yield namedTuple
+
+
     @property
     def session(self):
         return self.DB.session
@@ -254,6 +331,12 @@ class Model(dict):
         pass
 
 
+    def __repr__(self):
+        return self.__class__.__name__
+
+    @classmethod
+    def allow_fileds(cls):
+        return cls.__mappings__.keys()
 
 
 class User(Model):
@@ -265,4 +348,10 @@ class User(Model):
     # TODO not ok set here
     PRIMARYKEY = 'id'
 
+
+if __name__ == '__main__':
+
+    c = User.get(user='hua').exclude(passwd='123').commit()
+    for i in c:
+        print(i)
 

@@ -15,7 +15,8 @@ from handle.auth import Session,PRIVILIGE,user_level
 from core.config import Configs
 from datetime import datetime,timedelta
 from util.logger import init_loger,traceback
-from .exc import MethodNotAllowedException,ApplicationError
+from .exc import MethodNotAllowedException,ApplicationError,HTTPExceptions,Abort
+from contextlib import contextmanager
 from util._compat import bytes2str,CRLF,DCRLF,B_CRLF,\
     B_DCRLF,AND,EQUALS,SEMICOLON,STRING,_None,bytes2defaultcoding,UNQUOTE
 
@@ -300,7 +301,7 @@ class Form(BaseForm):
     def binding_file(self):
         if hasattr(self,'form_data_info'):
             with File(self.form_data_info,self.form_data_raw) as _f:
-                setattr(self.WrapRequest,'file',_f)
+                setattr(self.WrapRequest,'_file',_f)
 
 
     @property
@@ -319,14 +320,15 @@ class MetaRouter(type):
     making request, response communication more intuitive. isn't it?
     '''
     def __new__(cls, name, bases, attrs):
-        def find_handler(self):
+
+        def __find_handler(self):
             # if login_require setting up. checking the router and judge whether cookie is legitimate.
             router = self.wrapper.find_router()
             # if hasattr(router,'login_require'):
             #     print(dir(router))
             return router
 
-        def find_router(self):
+        def __find_router(self):
             '''
             get_first_line has been returned by decorator,
             so it's changed to be a property value
@@ -341,28 +343,45 @@ class MetaRouter(type):
 
                 _log = '\t\t'.join([method, sock_from, path + '?' + query if query else path])
                 console.info(_log)
+                _match_res = MetaRouter._re_match(self.handlers, path)
+                if _match_res:
+                    _real_path,_re_res = _match_res
+                else:
+                    _real_path,_re_res = path,[]
 
-                router = self.handlers.get(path, WrapRequest.DEFAULT_INDEX)
+                router = self.handlers.get(_real_path, WrapRequest.DEFAULT_INDEX)
 
             except MethodNotAllowedException:
 
-                router = WrapRequest.METHOD_NOT_ALLOWED
+                router,_re_res = WrapRequest.METHOD_NOT_ALLOWED,[]
 
             except Exception as e:
                 Log.info(traceback(e))
-                router = WrapRequest.INTERNAL_SERVER_ERROR
+                router,_re_res = WrapRequest.INTERNAL_SERVER_ERROR,[]
 
-            return router
+            return router,_re_res
 
 
         if name == 'HttpResponse':
-            attrs['find_handler'] = find_handler
+            attrs['find_handler'] = __find_handler
         elif name == 'HttpRequest':
-            attrs['find_router'] = find_router
+            attrs['find_router'] = __find_router
         else:
             pass
         return type.__new__(cls, name, bases, attrs)
 
+
+    @classmethod
+    def _re_match(cls,handlers,path):
+        for _path in handlers.keys():
+            if re.compile(_path).match(path):
+                _re_ = re.compile(_path).findall(path)
+                return _path,_re_
+
+    @classmethod
+    def _re_matcher(cls,handlers,path):
+        for _path, _obj in handlers.items():
+            xx = re.compile(_path).findall(path)
 
 class method_check(object):
 
@@ -608,14 +627,16 @@ class TemplateEngine(BaseEngine):
         return {name: code for name, code in self.re_blocks.findall(text)}
 
 
+extra = {}
 ModuleEngine = TemplateEngine
+_abortting = Abort(extra=extra)
 
 
 
 @six.add_metaclass(MetaRouter)
-class HttpRequest(object):
+class HttpRequest(HTTPExceptions):
 
-    def __init__(self,headers=None,handlers=dict,sock =None):
+    def __init__(self,headers=None,handlers=None,sock =None):
         self.headers = headers
         self.handlers = handlers
         self.sock = sock
@@ -655,11 +676,6 @@ class HttpRequest(object):
 
     def safe_dict(self,tmp):
         raise NotImplementedError
-
-
-    def render(self,*args,**kwargs):
-        raise NotImplementedError
-
 
     def add_cookie(self, *args, **kwargs):
         tmp = args[0]
@@ -734,30 +750,123 @@ class HttpRequest(object):
 
     def is_admin(self,user):
         # if is admin user
-        return self.user_privilege(user).is_admin
+        priv = self.user_privilege(user)
+        if priv:
+            return priv.is_admin
 
 
     def can_write(self,user):
         # if user has write privilege
-        return self.user_privilege(user).can_write
+        priv = self.user_privilege(user)
+        if priv:
+            return priv.can_write
 
 
     def can_upload(self,user):
         # if user has upload privilege
-        return self.user_privilege(user).can_upload
+        priv = self.user_privilege(user)
+        if priv:
+            return priv.can_upload
 
 
     def can_read(self,user):
         # read is amost normal user privilege. default 1 for all users.
-        return self.user_privilege(user).can_read
+        priv = self.user_privilege(user)
+        if priv:
+            return priv.can_read
 
     @property
     def current_user(self):
         cookies = self.get_cookie()
-        name = cookies['name']
-        priv = json.loads(cookies['level'])
-        tuples = namedtuple('xx',['name','can_read','can_write','can_upload','is_admin'])
-        return tuples._make([name,priv['can_read'],priv['can_write'],priv['can_upload'],priv['is_admin']])
+        if cookies:
+            name = cookies['name']
+            priv = json.loads(cookies['level'])
+            tuples = namedtuple('xx',['name','can_read','can_write','can_upload','is_admin'])
+            return tuples._make([name,priv['can_read'],priv['can_write'],priv['can_upload'],priv['is_admin']])
+
+
+    def _supercode(self,name):
+        statement = """def {}(): return super(cls,self).func(*args,**kwargs)""".format(name)
+        code = compile(statement,'statement','exec')
+        return code
+
+
+    def _exec(self,code):
+        exec(code,{},{})
+
+
+    def raise_status(self,code,*args, **kwargs):
+        # return super(HttpRequest,self)._abort(*args,**kwargs)
+        return _abortting(code,*args,**kwargs)
+
+
+    def set_header(self,k,v):
+        with self.REQUEST as req:
+            if req:
+                return req.set_header(k,v)
+
+    def redirect(self,uri,permanent_redirect = False,status=None):
+        with self.REQUEST as req:
+            if req:
+                return req.redirect(uri,permanent_redirect,status)
+
+
+    def render(self,path,**kwargs):
+        with self.REQUEST as req:
+            if req:
+                return req.render(path,**kwargs)
+
+
+    def get_arguments(self, key, default):
+        with self.REQUEST as req:
+            if req:
+                return req.get_arguments(key, default)
+
+    def get_cookie(self, key=None, safe_type='session'):
+        with self.REQUEST as req:
+            if req:
+                return req.get_cookie(key=key,safe_type=safe_type)
+
+    def clear_cookie(self):
+        with self.REQUEST as req:
+            if req:
+                return req._clear_cookie()
+
+
+    def set_cookie(self, cookies_dict, max_age=None, expires=None,
+                   path=None, domain=None, secure=False, httponly=False,
+                   safe_type='session'):
+
+        with self.REQUEST as req:
+            if req:
+                return req.set_cookie(cookies_dict, max_age=max_age, expires=expires,
+                   path=path, domain=domain, secure=secure, httponly=httponly,
+                   safe_type='session')
+
+    def _sfile(self):
+        with self.REQUEST as req:
+            if req and hasattr(req,'_file'):
+                return req._file
+            else:
+                raise AttributeError('_file is not exist')
+
+
+    def _sform(self):
+        with self.REQUEST as req:
+            if req and hasattr(req,'_form'):
+                return req._form
+            else:
+                raise AttributeError('_form is not exist')
+
+
+    form = property(_sform,None,None,"Form data is there is a form-type Content-Type.")
+    file = property(_sfile, None, None, "File data is there is a form-type Content-Type.")
+
+
+    @property
+    @contextmanager
+    def REQUEST(self):
+        yield getattr(self,'request') if hasattr(self,'request') else None
 
 
 class Bad_Request(HttpRequest):
@@ -849,14 +958,8 @@ class DangerousRequest(HttpRequest):
             return date
 
     def clear_cookie(self):
-        sess = self.session
+        raise NotImplementedError
 
-        if sess in Session:
-            del Session[sess]
-
-        tmp = ["_session="]
-        self.add_cookie_attribute(tmp)
-        self._set()
 
     def make_warning(self,key):
         '''
@@ -903,6 +1006,8 @@ class WrapRequest(DangerousRequest):
 
     def __init__(self,request_data,callback,handlers=None,application=None,sock=None):
         self.request_data = request_data
+
+        # self.handlers = {'/index':(indexHandler, re.compile('/index'))}
         self.handlers = callback(handlers)
         self.application = application
         self.sock = sock
@@ -924,6 +1029,12 @@ class WrapRequest(DangerousRequest):
 
         super(DangerousRequest,self).__init__(headers=self.headers,handlers=self.handlers,sock = sock)
 
+    @classmethod
+    def _RE(cls, handle_dict):
+        tmp = {}
+        for i, j in handle_dict.items():
+            tmp[i] = (j, re.compile(i))
+        return tmp
 
     def _wrap_content_type(self,content_type):
         '''
@@ -939,7 +1050,7 @@ class WrapRequest(DangerousRequest):
             form_data = self.wrap_param()
             if form_data:
                 # form is enable.
-                self.form = Form(self,form_data,self.headers)
+                self._form = Form(self,form_data,self.headers)
             setattr(self, '_form_enable', 1)
 
         elif 'application/json' in content_type:
@@ -979,14 +1090,14 @@ class WrapRequest(DangerousRequest):
         :return:
         '''
         if not self._has_wrapper:
-            '''
-            import chardet
-            encode_type = chardet.detect(html)  
-            html = html.decode(encode_type['encoding'])
-            
-            str2bytes: encode().
-            bytes2str: decode().
-            '''
+
+            # import chardet
+            # encode_type = chardet.detect(html)
+            # html = html.decode(encode_type['encoding'])
+            #
+            # str2bytes: encode().
+            # bytes2str: decode().
+
             try:
                 headers = bytes_header.decode()
                 assert not isinstance(headers,bytes),"The HTTP Request Protocol Error, SSL is disable now"
@@ -1155,6 +1266,8 @@ class WrapRequest(DangerousRequest):
     def set_header(self,k,v):
         # replace if key already exists is not right.
         # http/https response header can have duplicate keys. e.g. Set-Cookie
+
+        # am i can set_header direcly?
         if k in self.response_header:
             self.response_header[k] = self.response_header[k] + ' ' +v
         else:
@@ -1247,7 +1360,6 @@ class WrapRequest(DangerousRequest):
             digest = hashlib.md5(s.encode('utf-8')).hexdigest()
             # keeping session in memory
             Session[digest] = s
-
             tmp = ["_session=" + digest + '; ']
 
         elif safe_type == 'encrypt':
@@ -1281,11 +1393,19 @@ class WrapRequest(DangerousRequest):
 
 
 
-    def clear_cookie(self):
+    def _clear_cookie(self):
         '''
         reset the cookie : session=None
         '''
-        super(WrapRequest,self).clear_cookie()
+        sess = self.session
+
+        if sess in Session:
+            del Session[sess]
+
+        tmp = ["_session="]
+        self.add_cookie_attribute(tmp)
+        self._set()
+
 
 
     def _set(self):
@@ -1312,5 +1432,10 @@ class WrapRequest(DangerousRequest):
 
 
     def current_user(self):
-
+        # exec(self._supercode('func'),{'cls':self.__class__.__name__,'func':'current_user'})
+        # a = func()
         return super(WrapRequest,self).current_user
+
+
+    def raise_status(self,code,*args,**kwargs):
+        return super(WrapRequest, self).raise_status(code)

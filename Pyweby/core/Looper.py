@@ -49,16 +49,32 @@ class MainCycle(object):
         raise NotImplementedError
 
 
+class MagicDict(dict):
+    '''
+    an dict support self-defined operator
+    '''
+    def __getattr__(self, attr):
+        try:
+            return self[attr]
+        except KeyError:
+            raise AttributeError(attr)
+
+    def __setattr__(self, attr, value): self[attr] = value
+
+    def __iadd__(self, rhs): self.update(rhs); return self
+
+    def __add__(self, rhs):
+        d = MagicDict(self); d.update(rhs); return d
+
+
+
 class PollCycle(MainCycle,Configs.ChooseSelector):
 
     '''
     Threading. local () is a method that holds a global variable,
     but it is accessible only to the current thread
     '''
-    pair = {}
-    connection = {}
-    request = {}
-    response = {}
+    pair = connection =  MagicDict()
 
     def __init__(self,*args,**kwargs):
         self._impl = kwargs.get('__impl',None)
@@ -473,7 +489,7 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
             except (socket.error, Exception) as e:
                 Log.info(traceback(e))
                 self.close(sock)
-                continue
+                break  # turn continue to break. or will drop-dead halt
 
             if data.startswith(b'GET'):
                 if data.endswith(B_DCRLF):
@@ -492,6 +508,20 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
                 data_.extend([header_part, B_DCRLF, part_part])
                 pos = len(part_part)
                 self._POST = True
+
+
+            elif data.startswith(b'PUT'):
+                pass
+
+            elif data.startswith(b'OPTIONS'):
+                pass
+
+            elif data.startswith(b'HEAD'):
+                pass
+
+            elif data.startswith(b'DELETE'):
+                pass
+
 
             if self._POST:
                 if length <= pos:

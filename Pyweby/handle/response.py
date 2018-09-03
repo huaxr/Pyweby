@@ -8,14 +8,75 @@ import copy
 import six
 from functools import wraps
 from collections import OrderedDict
+import traceback as tb
 
 from handle.request import HttpRequest,Unauthorized,MetaRouter
 from handle.exc import (StatusError,MethodNotAllowedException,
-                        EventManagerError,NoHandlingError,JsonPraseError)
+                        EventManagerError,NoHandlingError,JsonPraseError,_HttpException)
 from concurrent.futures import _base
 from util.Engines import EventFuture,Eventer
 from util.logger import Logger,traceback
 from core._concurrent import safe_lock
+from util._compat import EXCEPTION_MSG
+
+
+_STATUS_CODES = {
+    100:    'Continue',
+    101:    'Switching Protocols',
+    102:    'Processing',
+    200:    'OK',
+    201:    'Created',
+    202:    'Accepted',
+    203:    'Non Authoritative Information',
+    204:    'No Content',
+    205:    'Reset Content',
+    206:    'Partial Content',
+    207:    'Multi Status',
+    226:    'IM Used',              # RFC 3229
+    300:    'Multiple Choices',
+    301:    'Moved Permanently',
+    302:    'Found',
+    303:    'See Other',
+    304:    'Not Modified',
+    305:    'Use Proxy',
+    307:    'Temporary Redirect',
+    400:    'Bad Request',
+    401:    'Unauthorized',
+    402:    'Payment Required',     # unused
+    403:    'Forbidden',
+    404:    'Not Found',
+    405:    'Method Not Allowed',
+    406:    'Not Acceptable',
+    407:    'Proxy Authentication Required',
+    408:    'Request Timeout',
+    409:    'Conflict',
+    410:    'Gone',
+    411:    'Length Required',
+    412:    'Precondition Failed',
+    413:    'Request Entity Too Large',
+    414:    'Request URI Too Long',
+    415:    'Unsupported Media Type',
+    416:    'Requested Range Not Satisfiable',
+    417:    'Expectation Failed',
+    418:    'I\'m a teapot',  # RFC 2324
+    422:    'Unprocessable Entity',
+    423:    'Locked',
+    424:    'Failed Dependency',
+    426:    'Upgrade Required',
+    428:    'Precondition Required',  # RFC 6585
+    429:    'Too Many Requests',
+    431:    'Request Header Fields Too Large',
+    449:    'Retry With',  # proprietary MS extension
+    451:    'Unavailable For Legal Reasons',
+    500:    'Internal Server Error',
+    501:    'Not Implemented',
+    502:    'Bad Gateway',
+    503:    'Service Unavailable',
+    504:    'Gateway Timeout',
+    505:    'HTTP Version Not Supported',
+    507:    'Insufficient Storage',
+    510:    'Not Extended'
+}
 
 
 Log = Logger(logger_name=__name__)
@@ -238,6 +299,11 @@ class DangerResponse(HttpResponse):
     def transe_format(self,arg):
         raise NotImplementedError
 
+
+
+
+
+
 class WrapResponse(DangerResponse):
 
     def __init__(self,wrapper_request,event_manager=None,sock=None,PollCycle=None):
@@ -313,32 +379,35 @@ class WrapResponse(DangerResponse):
         nexter = (None,None)   # for staring the coroutine
         while True:
             yield nexter
+            handler = self.find_handler()
+            router, _re_res = handler[0], handler[1]
 
-            router = self.find_handler()()
+            ROUTER = router()
             # router is response , we add the request attribute to the self instance
             # 1.the WrapperRequest object
-            router.request = self.wrapper
+            setattr(ROUTER,'request',self.wrapper)
             # 2. the global application instance binding here,this is an instance already
-            router.app = self.wrapper.application
+            setattr(ROUTER,'app',self.wrapper.application)
+            setattr(ROUTER, 'matcher', _re_res)
 
             if method.upper() in ('GET',b'GET'):
                 '''
                 dispose GET method
                 '''
-                nexter = self.auth_check(router,'get')
+                nexter = self.auth_check(ROUTER,'get')
 
             elif method.upper() in ('POST',b'POST'):
                 '''
                 handler POST method
                 '''
-                nexter = self.auth_check(router, 'post')
+                nexter = self.auth_check(ROUTER, 'post')
 
             else:
                 '''
                 this means we don't handler except GET,POST, TODO and 
                 robust web server.
                 '''
-                nexter = self.auth_check(router, '')
+                nexter = self.auth_check(ROUTER, '')
 
 
     def discern_result(self,time_consuming_op=None):
@@ -415,6 +484,28 @@ class WrapResponse(DangerResponse):
         return header + "\r\n\r\n"
 
 
+    def gen_exception_body(self,code,msg,status_message=None,pretty=True):
+        if pretty:
+            yield u'<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">\n'
+            yield u'<html>\n'
+            yield u'<body>\n'
+        yield u'<title>%(code)s </title>\n' %{'code':code}
+        yield u'<h1>%(code)s %(description)s</h1>\n' %{'code':code, 'description':  self.get_exption_description(msg)}
+        if status_message:
+            yield u'%(status_message)s\n' %{'status_message':status_message}
+        if pretty:
+            yield u'</body>\n'
+            yield u'</html>'
+
+
+    def get_exption_description(self,msg):
+        return u'<p>%s</p>' % msg
+
+
+    def gen_html(self):
+        pass
+
+
     def gen_body(self,  prefix="\r\n\r\n", if_need_result = False,debug=True):
         '''
         generator the body contains headers
@@ -422,6 +513,7 @@ class WrapResponse(DangerResponse):
         '''
         try:
             tmp = self.discern_result(time_consuming_op=self.switch_method(self.method))
+
             if isinstance(tmp, types.MethodType):
                 # Do not try execute tmp() twice.
                 if debug:
@@ -429,9 +521,11 @@ class WrapResponse(DangerResponse):
                 else:
                     try:
                         X_X_X =tmp()
+                    except _HttpException:
+                        return
                     except Exception as e:
                         Log.critical(traceback(e))
-                        return self.not_future_body(500, 'internal server error(program error)', prefix=prefix)
+                        return self.not_future_body(500, '<h1>internal server error</h1>', prefix=prefix)
 
                 # when no result return.
                 if  X_X_X is None:
@@ -442,6 +536,7 @@ class WrapResponse(DangerResponse):
                 if isinstance(X_X_X,(list,tuple)):
                     body,status = X_X_X
                 else:
+
                     body,status = X_X_X,200    # 200 OK response for default.
 
             # when using @restful
@@ -455,37 +550,54 @@ class WrapResponse(DangerResponse):
             else:
                 raise NoHandlingError
 
+
+        except _HttpException as e:
+
+            _exp = EXCEPTION_MSG(e)
+
+            if len(_exp) == 2:
+                e, status_message = EXCEPTION_MSG(e)
+            elif len(_exp) == 1:
+                e, status_message = _exp[0], None
+            else:
+                raise AttributeError("too many arguments")
+
+            msg = self.msg_pair.get(e,None) or _STATUS_CODES.get(e)
+
+            bodys = ''.join(list(self.gen_exception_body(str(e),msg,status_message)))
+            add_header = {'Content-Type': 'text/html'}
+            return self.gen_headers(self.version, int(e), msg,add_header=add_header)\
+                   + str(bodys)
+
+
         except Exception as e:
             Log.warning(traceback(e))
-            Log.warning(e.with_traceback())
-            return self.not_future_body(500, 'internal server error', prefix=prefix)
+            tb._context_message()
+            return self.not_future_body(500, '<h1>internal server error</h1>', prefix=prefix)
 
-        """
-        8.10
-        since from  switch_method getting called, the returning result can be
-        an normal bytes? or string? type for return.
-        but if you set concurrent generator a Future object 
-        `<class 'concurrent.futures._base.Future'>` , so here you should judge
-        Whether `body` is Future.tp_repr or not.
-        ok_body is the method what you need?
-        no, still call result(), blocking still, how can i solve it?
-        
-        8.14
-        solution: using Observer-Model to delegate the Future and current socket
-        to the EventMaster
-        """
-
-        if isinstance(body,_base.Future):
-            # WE DON'T NEED if_need_result FLAG ANYMORE,CAUSE WE CAN JUDGE THE BRANCH TO GO BY
-            # distinguish whether body is Future or (str,bytes...)
-            self.ok_body(body)
-
-        elif isinstance(body,dict):
-
+        if isinstance(body,dict):
             return self.restful_body(body,status)
 
+        elif isinstance(body, _base.Future):
+            # WE DON'T NEED if_need_result FLAG ANYMORE,CAUSE WE CAN JUDGE THE BRANCH TO GO BY
+            # distinguish whether body is Future or (str,bytes...)
+
+            # 8.10
+            # since from  switch_method getting called, the returning result can be
+            # an normal bytes? or string? type for return.
+            # but if you set concurrent generator a Future object
+            # `<class 'concurrent.futures._base.Future'>` , so here you should judge
+            # Whether `body` is Future.tp_repr or not.
+            # ok_body is the method what you need?
+            # no, still call result(), blocking still, how can i solve it?
+            #
+            # 8.14
+            # solution: using Observer-Model to delegate the Future and current socket
+            # to the EventMaster
+            self.ok_body(body)
+
         else:
-            return self.not_future_body(status, body, prefix)
+            return self.not_future_body(status, "".join(["<p>",body,"</p>"]), prefix)
 
 
     def callback_result(self,finished_future):
@@ -519,7 +631,7 @@ class WrapResponse(DangerResponse):
         if prefix != u'\r\n' * 2:
             return json.dumps(body)
         else:
-            return self.gen_headers(self.version, status, msg) + str(body)
+            return self.gen_headers(self.version, status, msg,add_header={'Content-Type': 'text/html'}) + str(body)
 
     def set_header(self,k,v):
         return {k:v}

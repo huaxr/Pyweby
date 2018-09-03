@@ -79,5 +79,7 @@ def gen_serversock(port=None,ssl_enable=False):
 
     time.sleep(0.5)
     Log.info("[*] Server %s://%s:%d started! fd=[%s]" %("https" if ssl_enable else "http",HOST,PORT,s.fileno()))
+    time.sleep(0.2)
+    Log.info('\t\t\t'.join(['Method','From','Index']))
     return s
 

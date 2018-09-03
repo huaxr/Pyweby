@@ -1,4 +1,7 @@
 import select
+
+import itertools
+
 from .Looper import PollCycle
 from .config import Configs
 from util.logger import Logger,traceback
@@ -32,6 +35,7 @@ class _select(object):
             readable, writeable, exceptions = select.select(self.read_fds, self.write_fds, self.error_fds, timeout)
         except (ValueError,OSError,select.error) as e:
             Log.critical(traceback(e))
+            self.remove_negative_fd()
             return []
 
         events = {}
@@ -69,6 +73,11 @@ class _select(object):
 
     def close(self):
         raise NotImplementedError
+
+    def remove_negative_fd(self):
+        for i in itertools.chain(self.read_fds,self.write_fds,self.error_fds):
+            if i.fileno() < 0:
+                self.remove_sock(i)
 
 def loading(t):
     for _ in range(t):
