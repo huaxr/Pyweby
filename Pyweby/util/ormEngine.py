@@ -10,7 +10,7 @@ from ._compat import URLPARSE
 from .logger import traceback,init_loger
 from collections import namedtuple
 from handle.exc import ORMError
-
+from core.config import Configs
 
 Log = init_loger(__name__)
 # import warnings
@@ -87,9 +87,18 @@ class BaseDB(object):
         """
 
 class DataBase(BaseDB):
-    # Engine = DBEngine(Configs.Application.__subclasses__()[0]().settings.get('DATABASE',None))
+    '''
+    DBEngine Class parse the db-uri to the specific result.
+
+    Engine = DBEngine(Configs.Application.__subclasses__()[0]().settings.get('DATABASE',None))
     conn = pymysql.connect('localhost', 'root', 'root', 'test')
     cursor = conn.cursor()
+    '''
+    Engine = DBEngine(db_uri="mysql://127.0.0.1:3306/test?user=root&passwd=root")
+
+    with Engine.sql() as conn:
+        conn = conn
+        cursor = conn.cursor()
 
     @property
     def db(self):
@@ -180,6 +189,7 @@ OP = MGdict(
     OR='OR',
     NOT = '!=',
     WHERE = 'WHERE',
+    ALL ='*',
  )
 
 
@@ -202,7 +212,9 @@ class Model(dict):
 
     @classmethod
     def get(cls,**kw):
-        # judge from the class object. by classmethod
+        limit_fields = kw.pop('limit_fields', [])
+
+        limits = ','.join(limit_fields) if limit_fields else OP.ALL
         fields,values,tmp = [] ,[],[]
 
         allow_fileds = cls.__mappings__.keys()
@@ -214,7 +226,7 @@ class Model(dict):
                 values.append(json.dumps(value))
 
         if not values:
-            sql = "select * from `{}`".format(cls.__table__)
+            sql = "select {} from `{}`".format(limits,cls.__table__)
             setattr(cls, 'sql', sql)
             return cls
 
@@ -227,7 +239,7 @@ class Model(dict):
 
             cond = ''.join(tmp).rstrip('and ')
 
-            sql = "select * from `{}` where {}".format(cls.__table__,cond)
+            sql = "select {} from `{}` where {}".format(limits,cls.__table__,cond)
             setattr(cls,'sql',sql)
             return cls
 
@@ -298,7 +310,12 @@ class Model(dict):
 
 
     @classmethod
-    def commit(cls,named='Default',):
+    def fetchone(cls,named='Default'):
+        '''
+        >>> c = User.get(user='hua').exclude(passwd='123').fetchone()
+        >>>     for i in c:
+        >>>     print(i)
+        '''
         try:
             cls.DB.session.execute(cls.sql)
             cls.DB.db.commit()
@@ -306,13 +323,47 @@ class Model(dict):
             cls.cls_create_table()
             cls.commit()
 
+        tuples = namedtuple(named, list(cls.allow_fileds()))
+        '''
+        If only fetchone gets a result, it will return directly to the data,
+        otherwise it will use generator.
+        '''
+        query_result = cls.DB.session.fetchone()
+        namedTuple = tuples._make([json.loads(str(i)) for i in list(query_result)])
+        return namedTuple
+
+
+    @classmethod
+    def fetchall(cls, named='Default'):
+        '''
+        generator result.
+        call next(result) until raise Stop.
+        '''
+        tuples = namedtuple(named, list(cls.allow_fileds()))
         query_result = cls.DB.session.fetchall()
         if query_result:
-            tuples = namedtuple(named,list(cls.allow_fileds()))
-            # now using json.loads make it right.
             for j in query_result:
                 namedTuple = tuples._make([json.loads(str(i)) for i in j])
                 yield namedTuple
+
+
+    @classmethod
+    def order_by(cls,*args,**kwargs):
+        '''
+        order by the field from the fetch result.
+        >>> cls.order_by('id',desc=True)
+        return cls with sql parameter.
+        '''
+        if not hasattr(cls,'sql'):
+            raise ORMError("Must call Model.get() before exclude.")
+
+        DESC = kwargs.pop('desc',False)
+        allow_fileds = cls.allow_fileds()
+        field = args[0]
+        if field in allow_fileds:
+            # /** order by id desc **/
+            cls.sql += ' ORDER BY {} {}'.format(field, OP.DESC if DESC else '')
+        return cls
 
 
     @property
@@ -349,9 +400,9 @@ class User(Model):
     PRIMARYKEY = 'id'
 
 
-if __name__ == '__main__':
 
-    c = User.get(user='hua').exclude(passwd='123').commit()
-    for i in c:
-        print(i)
+if __name__ == '__main__':
+    c = User.get(user='hua', limit_fields=['privilege', 'passwd']).exclude(passwd='123').order_by('id', desc=True)
+    print(c.sql)
+
 
