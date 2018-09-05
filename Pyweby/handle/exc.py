@@ -1,4 +1,5 @@
 import sys
+from collections import namedtuple
 
 _exceptions = {}
 
@@ -50,6 +51,9 @@ class ApplicationError(Exception):
     def __init__(self, msg=None):
         super(ApplicationError, self).__init__(msg or 'Application Error')
 
+class JSONFormatError(Exception):
+    def __init__(self, msg=None):
+        super(JSONFormatError, self).__init__(msg or 'JSON ERROR')
 
 class ExceptHandler(Exception):
     def __init__(self,func):

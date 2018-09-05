@@ -18,7 +18,9 @@ from util.logger import init_loger,traceback
 from .exc import MethodNotAllowedException,ApplicationError,HTTPExceptions,Abort
 from contextlib import contextmanager
 from util._compat import bytes2str,CRLF,DCRLF,B_CRLF,\
-    B_DCRLF,AND,EQUALS,SEMICOLON,STRING,_None,bytes2defaultcoding,UNQUOTE
+    B_DCRLF,AND,EQUALS,SEMICOLON,STRING,_None,bytes2defaultcoding,UNQUOTE,intern,PY36
+
+from util.ormEngine import sessions
 
 
 
@@ -362,9 +364,9 @@ class MetaRouter(type):
             return router,_re_res
 
 
-        if name == 'HttpResponse':
+        if name == intern('HttpResponse'):
             attrs['find_handler'] = __find_handler
-        elif name == 'HttpRequest':
+        elif name == intern('HttpRequest'):
             attrs['find_router'] = __find_router
         else:
             pass
@@ -635,7 +637,6 @@ _abortting = Abort(extra=extra)
 
 @six.add_metaclass(MetaRouter)
 class HttpRequest(HTTPExceptions):
-
     def __init__(self,headers=None,handlers=None,sock =None):
         self.headers = headers
         self.handlers = handlers
@@ -841,7 +842,7 @@ class HttpRequest(HTTPExceptions):
             if req:
                 return req.set_cookie(cookies_dict, max_age=max_age, expires=expires,
                    path=path, domain=domain, secure=secure, httponly=httponly,
-                   safe_type='session')
+                   safe_type=safe_type)
 
     def _sfile(self):
         with self.REQUEST as req:
@@ -857,6 +858,63 @@ class HttpRequest(HTTPExceptions):
                 return req._form
             else:
                 raise AttributeError('_form is not exist')
+
+
+    def get_json(self,callback=None):
+        # set Content-Type: application/json
+        # this will handled by this function.
+        # return the correct format json or {} instead.
+
+        # usage: curl -XPOST  http://192.168.1.3/test -H "Content-Type:application/json" -d "{\"a\":\"b\"}"
+        with self.REQUEST as req:
+            if req:
+                return req._get_json
+
+
+
+    def ghost(self,field_iter):
+
+        field = tuple(map(intern, field_iter))
+        arg_list = ','.join(list(field))
+        tuple_new = tuple.__new__
+        typename = intern(str('_'+self.__class__.__name__))
+
+        # if PY36:
+        #     s = f'def __new__(_cls, {arg_list}): return _tuple_new(_cls, ({arg_list}))'
+        # else:
+        #     s = 'def __new__(_cls, {arg_list}): return _tuple_new(_cls, ({arg_list}))'.format(arg_list=arg_list)
+
+        s = 'def __new__(_cls, {arg_list}): return _tuple_new(_cls, ({arg_list}))'.format(arg_list=arg_list)
+
+        namespace = {'_tuple_new': tuple_new, '__name__': 'namedtuple_{typename}'.format(typename=typename)}
+        # exec() has the effect of interning the field names.
+        # from now, namespace has attr __new__
+        exec(s, namespace)
+
+        __new__ = namespace['__new__']
+
+        @classmethod
+        def _handler(cls, iterable):
+            result = tuple_new(cls, iterable)
+            return result
+
+        def befor_request():
+            pass
+
+
+        def after_request():
+            pass
+
+        attrs = {
+            '_handler': _handler,
+            '__doc__': 'ghost object will not use the Request Handler.',
+            '__slots__': (),
+            '_fields': field,
+            '__new__': __new__,
+        }
+        bases = (tuple,)
+        result = type(typename,bases, attrs)
+        return result
 
 
     form = property(_sform,None,None,"Form data is there is a form-type Content-Type.")
@@ -1004,13 +1062,14 @@ class WrapRequest(DangerousRequest):
 
     SAFE_LOCKER = threading.RLock()
 
-    def __init__(self,request_data,callback,handlers=None,application=None,sock=None):
+    def __init__(self,request_data,callback,handlers=None,application=None,sock=None,**kwargs):
         self.request_data = request_data
 
         # self.handlers = {'/index':(indexHandler, re.compile('/index'))}
         self.handlers = callback(handlers)
         self.application = application
         self.sock = sock
+        self.kwargs = kwargs
 
         self._has_wrapper = False
         self.regexp = re.compile(CRLF)
@@ -1054,8 +1113,16 @@ class WrapRequest(DangerousRequest):
             setattr(self, '_form_enable', 1)
 
         elif 'application/json' in content_type:
-            self.json_content =  json.loads(self.wrap_param())
-            setattr(self, '_get_json_enable', 1)
+            are_u_json = self.wrap_param()
+            try:
+                self.json_content =  json.loads(are_u_json)
+                setattr(self, '_get_json_enable', 1)
+            except json.decoder.JSONDecodeError:
+                # do not raise json parse error rather than return an
+                # empty dict.
+                self.json_content =  {}
+                Log.info("[*] wrong json format: %s" %str(are_u_json))
+
 
         elif 'text/xml' in content_type:
             # TODO HANDLER XML
@@ -1229,7 +1296,7 @@ class WrapRequest(DangerousRequest):
         return self.xml_content if hasattr(self,'xml_content') else "<?xml></xml>"
 
     @_property
-    def get_json(self):
+    def _get_json(self):
         '''
         json request handler.
         :return: an dict-like object. json.loads()
@@ -1334,7 +1401,7 @@ class WrapRequest(DangerousRequest):
 
     def set_cookie(self, cookies_dict, max_age=None, expires=None,
                    path=None, domain=None, secure=False, httponly=False,
-                   safe_type='session'):
+                   safe_type='session',permanent=False):
         '''
         :param safe: for secure reason, when secure is not setted.
         use the encryption session in place of plain cookies.
@@ -1361,6 +1428,14 @@ class WrapRequest(DangerousRequest):
             # keeping session in memory
             Session[digest] = s
             tmp = ["_session=" + digest + '; ']
+
+            if permanent:
+                '''
+                for this moment. we keep the session digest in the DB for permanent.
+                TODO : enhance orm to support update.
+                '''
+                with sessions(session=digest,value=s) as ses:
+                    ses.save()
 
         elif safe_type == 'encrypt':
             '''
@@ -1402,7 +1477,7 @@ class WrapRequest(DangerousRequest):
         if sess in Session:
             del Session[sess]
 
-        tmp = ["_session="]
+        tmp = ["_session=logout;"]
         self.add_cookie_attribute(tmp)
         self._set()
 

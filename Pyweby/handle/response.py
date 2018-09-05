@@ -17,7 +17,7 @@ from concurrent.futures import _base
 from util.Engines import EventFuture,Eventer
 from util.logger import Logger,traceback
 from core._concurrent import safe_lock
-from util._compat import EXCEPTION_MSG
+from util._compat import EXCEPTION_MSG,SET,HAS
 
 
 _STATUS_CODES = {
@@ -306,7 +306,7 @@ class DangerResponse(HttpResponse):
 
 class WrapResponse(DangerResponse):
 
-    def __init__(self,wrapper_request,event_manager=None,sock=None,PollCycle=None):
+    def __init__(self,wrapper_request,event_manager=None,sock=None,PollCycle=None,**kwargs):
 
         assert issubclass(wrapper_request.__class__,HttpRequest)
 
@@ -314,6 +314,7 @@ class WrapResponse(DangerResponse):
         self.event_manager = event_manager
         self.sock = sock
         self.PollCycle = PollCycle
+        self.kwargs = kwargs  # middleware from request
 
         try:
             self.tuples = self.wrapper.get_first_line
@@ -357,7 +358,7 @@ class WrapResponse(DangerResponse):
 
             # cookies may be None. if None means Unauthorized.
             if cookies:
-                    nexter = getattr(router, method)
+                nexter = getattr(router, method)
             else:
                 r = Unauthorized()
                 nexter = getattr(r, method)
@@ -381,14 +382,23 @@ class WrapResponse(DangerResponse):
             yield nexter
             handler = self.find_handler()
             router, _re_res = handler[0], handler[1]
-
             ROUTER = router()
+
+            # call before_request before the find_handler.
+            # you need call `bound method` of before_request.
+            # or will missing self parameter
+            '''
+            >>> if HAS(ROUTER, 'before_request'):
+            >>>     before = getattr(ROUTER,'before_request')
+            >>>     before()
+            '''
+
             # router is response , we add the request attribute to the self instance
             # 1.the WrapperRequest object
-            setattr(ROUTER,'request',self.wrapper)
+            SET(ROUTER,'request',self.wrapper)
             # 2. the global application instance binding here,this is an instance already
-            setattr(ROUTER,'app',self.wrapper.application)
-            setattr(ROUTER, 'matcher', _re_res)
+            SET(ROUTER,'app',self.wrapper.application)
+            SET(ROUTER, 'matcher', _re_res)
 
             if method.upper() in ('GET',b'GET'):
                 '''
@@ -513,6 +523,7 @@ class WrapResponse(DangerResponse):
         '''
         try:
             tmp = self.discern_result(time_consuming_op=self.switch_method(self.method))
+            # tmp is <bound method testRouter.get>
 
             if isinstance(tmp, types.MethodType):
                 # Do not try execute tmp() twice.
@@ -597,7 +608,7 @@ class WrapResponse(DangerResponse):
             self.ok_body(body)
 
         else:
-            return self.not_future_body(status, "".join(["<p>",body,"</p>"]), prefix)
+            return self.not_future_body(status, "".join(["<p>",str(body),"</p>"]), prefix)
 
 
     def callback_result(self,finished_future):

@@ -18,10 +18,16 @@ from handle.response import WrapResponse
 from handle.exc import NoRouterHandlers,FormatterError
 from util.Engines import  EventManager,_EventManager,EventResponse,EventFunc
 from util.logger import init_loger,traceback
-from util._compat import B_DCRLF,str2bytes
+from util._compat import B_DCRLF,intern
 
 Log = init_loger(__name__)
 
+def thread_state(fn):
+    def wrapper(self):
+        if not (hasattr(self, 'eventManager') and hasattr(self, 'peventManager')):
+            raise RuntimeError("Thread not started yet.")
+        return fn
+    return wrapper
 
 class MainCycle(object):
 
@@ -77,6 +83,7 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
     pair = connection =  MagicDict()
 
     def __init__(self,*args,**kwargs):
+
         self._impl = kwargs.get('__impl',None)
         assert self._impl is not None
 
@@ -120,7 +127,19 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
         self._POST = False
         self._GET = True
 
+        '''
+        self.middleware: this action function used to save the global request
+        before and after it occurs, where the function pointer is saved for
+        subsequent calls.
+        '''
+        setattr(self.application,'request',self)
+        self.middleware = MagicDict()
+
+        for i in map(intern,['__before__','__after__']):
+            self.middleware += { i :getattr(self.application, ''.join([i[2:-1],'request']), None)}
+
         Configs.ChooseSelector.__init__(self,flag=self.__EPOLL)
+
 
     def swich_eventmanager_on(self):
         #starting the  eventManager._thread  for calling _run_events
@@ -137,9 +156,11 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
             thread.start()
 
 
+    @thread_state
     def swich_eventmanager_off(self):
         # turning down/ shutting up
         for thread in [self.eventManager,self.peventManager]:
+            print(thread)
             thread.stop()
 
 
@@ -251,8 +272,14 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
                                 continue
 
                             if data:
+                                # mark here for execute global_before_request
+                                _kw = {}
+                                _before_func = self.middleware.get('__before__')
+                                if _before_func:
+                                    _kw['before'] = _before_func()
+
                                 data = WrapRequest(data, lambda x: dict(x), handlers=self.handlers,
-                                                   application=self.application, sock=sock)
+                                                   application=self.application, sock=sock,**_kw)
                                 # for later usage, when the next Loop by the kernel select, that's
                                 # will be reuse the data putting in it.
                                 if sock in self.pair:
@@ -278,7 +305,7 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
                         # consider future.result() calling and non-blocking , we should
                         # activate the EventManager, and trigger sock.send() later in the
                         # EventManager sub threads Looping.
-                        writers = WrapResponse(msg,self.eventManager,sock,self)
+                        writers = WrapResponse(msg,self.eventManager,sock,self,**self.middleware)
                         event = EventResponse(writers)
                         self.eventManager.addRequestWrapper(event)
 
@@ -525,7 +552,7 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
 
             if self._POST:
                 if length <= pos:
-                    if data:
+                    if data and not data.startswith(b'POST'):
                         # always put the last pieces of raw data in the list
                         # otherwise, the data will be incomplete and the file
                         # will fail.
@@ -533,8 +560,7 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
                         data_.append(data)
                     break
                 else:
-                    if data:
+                    if data and not data.startswith(b'POST'):
                         data_.append(data)
                         pos += len(data)
-
         return b''.join(data_)

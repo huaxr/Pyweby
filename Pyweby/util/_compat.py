@@ -1,7 +1,7 @@
 import sys
 import os
 
-py36 = sys.version_info >= (3, 6)
+PY36 = sys.version_info >= (3, 6)
 py33 = sys.version_info >= (3, 3)
 py32 = sys.version_info >= (3, 2)
 py3k = sys.version_info >= (3, 0)
@@ -23,10 +23,12 @@ if PY3:
     STRING = (str,bytes)
     from urllib.parse import urlparse,unquote
     from functools import reduce
+    from sys import intern  # intern str operation. differ from py2
     REDUCE = reduce
     URLPARSE = urlparse
     UNQUOTE = unquote
     EXCEPTION_MSG = lambda e: e.args
+    intern = intern
 
 else:
     STRING = (str, unicode,bytes)
@@ -35,6 +37,7 @@ else:
     URLPARSE = urlparse
     UNQUOTE = unquote
     EXCEPTION_MSG = lambda e: e.message
+    intern = intern
 
 class _None(object):
 
@@ -45,7 +48,8 @@ class _None(object):
         return 'NoneObject is not reduce'
 
 _None = _None()
-
+SET = setattr
+HAS = hasattr
 CODING = sys.getdefaultencoding()
 
 bytes2str = lambda x: x.decode() if isinstance(x,bytes) else x
@@ -65,20 +69,3 @@ AND = '&'
 EQUALS = '='
 SEMICOLON = ';'
 
-
-
-if py3k:
-    def reraise(tp, value, tb=None, cause=None):
-        if cause is not None:
-            assert cause is not value, "Same cause emitted"
-            value.__cause__ = cause
-        if value.__traceback__ is not tb:
-            raise value.with_traceback(tb)
-        raise value
-else:
-    # not as nice as that of Py3K, but at least preserves
-    # the code line where the issue occurred
-    exec("def reraise(tp, value, tb=None, cause=None):\n"
-         "    if cause is not None:\n"
-         "        assert cause is not value, 'Same cause emitted'\n"
-         "    raise tp, value, tb\n")

@@ -139,8 +139,8 @@ class _EventManager(Switcher):
                 event = self._eventQ.get(block = True, timeout = 1)
                 if isinstance(event,EventFunc):
                     result = self.eventFunc(event)
-                    if result:
-                        self.callback_queue.put(result)
+                    self.callback_queue.put(result)
+                    continue
             except Empty:
                 pass
 
@@ -240,6 +240,14 @@ class EventManager(Switcher):
             # employ curl could't deal with 302
             # you should try firefox or chrome instead
             sock.sendall(bodys)
+
+            # when requst finished , the sock send all the msg.
+            # call after_request.
+            after_request = writers.kwargs.get('__after__', None)
+
+            if after_request:
+                after_request()
+
             # do not call sock.close, because the sock still in the select,
             # for the next loop, it will raise ValueEror `fd must not -1`
             PollCycle.close(sock)

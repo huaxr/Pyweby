@@ -2,6 +2,38 @@
 import itertools
 import sys
 
+
+class Globals(dict):
+    def __init__(self):
+        self.context = []
+        super(Globals,self).__init__()
+
+    def register(self,item):
+        self.context.append(item)
+
+    def __getattr__(self, item):
+        return self.get(item,None)
+
+    def __setattr__(self, key, value):
+        self[key] = value
+
+    def __delattr__(self, item):
+        self.pop(item,None)
+
+    def __iadd__(self, other):
+        assert  isinstance(other,dict)
+        self.update(other)
+        return self
+
+    def __add__(self, other):
+        d = Globals()
+        d.update(other)
+        return d
+
+    def __repr__(self):
+        return "Globals with context env"
+
+
 class Configs(object):
     PY3 = sys.version_info >= (3,)
     METHODS = ['GET', 'POST',b'GET',b'POST', 'OPTIONS', 'PUT', 'DELETE', b'OPTIONS', b'PUT', b'DELETE']
@@ -18,7 +50,12 @@ class Configs(object):
             assert isinstance(settings,dict), 'Settings value must be a dict object'
             self.handlers = handlers
             self.settings = settings
+            self._init()
 
+
+        def _init(self):
+            global Global
+            Global += self.settings
 
         def get_handlers(self):
             return self.handlers
@@ -49,8 +86,9 @@ class Configs(object):
             add application method, wrapper it to an instance attribute
             bind kwargs of SelectCycle.
             '''
-            kwargs.update({'application':obj()})
-            self.application = obj()
+            obj = obj()
+            kwargs.update({'application':obj})
+            self.application = obj
             # self.settings = self.application.settings
 
 
@@ -72,3 +110,5 @@ class Configs(object):
             raise NotImplementedError
 
 
+Global = Globals()
+Global += {"DATABASE" : "mysql://127.0.0.1:3306/test?user=root&passwd=root"}

@@ -101,17 +101,19 @@ class SelectCycle(PollCycle,Configs.BarrelCheck):
         self.application = None
         flag, obj = self.if_define_barrel(args,kwargs)
         if flag and obj:
+
             self.wrapper_barrel(obj,kwargs)
             # after wrapper_barrel called, self is bind application instance
             # which is the class user defined inherit from Configs.Application
-            kwargs.update(self.application.settings)
-
-            safe_cookie = self.application.settings.get('safe_cookie')
-            if not safe_cookie:
-                raise ValueError('safe_cookie must be set in Application\'s setting')
-            self.application.settings['safe_cookie_handler'] = Cipher(safe_cookie)
+            if self.application:
+                kwargs.update(self.application.settings)
+                safe_cookie = self.application.settings.get('safe_cookie')
+                if not safe_cookie:
+                    raise ValueError('safe_cookie must be set in Application\'s setting')
+                self.application.settings['safe_cookie_handler'] = Cipher(safe_cookie)
 
         kwargs.update({'__impl':_select()})
+
 
         # self has application attribute, which is the definition of the Application
         # now super calling .

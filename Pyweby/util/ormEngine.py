@@ -5,12 +5,14 @@ import six
 import pymysql
 import contextlib
 
-
 from ._compat import URLPARSE
 from .logger import traceback,init_loger
 from collections import namedtuple
 from handle.exc import ORMError
-from core.config import Configs
+from core.config import Global
+
+
+__all__ = ('User')
 
 Log = init_loger(__name__)
 # import warnings
@@ -30,7 +32,7 @@ class MGdict(dict):
 class DBEngine(object):
     def __init__(self,db_uri=None):
         '''
-        >>> a = URLPARSE("mysql://127.0.0.1:3306/test_db?user=root&passwd=root")
+        >>> a = URLPARSE("mysql://127.0.0.1:3306/test?user=root&passwd=root")
         >>> print(a)
         ParseResult(scheme='mysql', netloc='127.0.0.1:3306', path='/test_db', params='',query='user=root&pass=root', fragment='')
         '''
@@ -53,8 +55,10 @@ class DBEngine(object):
         scheme = self.db_info.scheme
         host,port = self.db_info.netloc.split(':',1)
         DB = self.db_info.path.lstrip('/')
-
-        user,passwd = [i.split('=')[1] for i in self.db_info.query.split('&')]
+        try:
+            user,passwd = [i.split('=')[1] for i in self.db_info.query.split('&')]
+        except (IndexError,Exception):
+            raise AttributeError("Error db uri: %s fromat e.g.:[mysql://localhost/database?user=x&passwd=x]" %self.db_uri)
         assert scheme in ['mysql','mongodb','redis'] and all([host,port,DB]),"DB URI ERROR"
 
         if scheme == 'mysql':
@@ -94,7 +98,8 @@ class DataBase(BaseDB):
     conn = pymysql.connect('localhost', 'root', 'root', 'test')
     cursor = conn.cursor()
     '''
-    Engine = DBEngine(db_uri="mysql://127.0.0.1:3306/test?user=root&passwd=root")
+
+    Engine = DBEngine(db_uri=Global.DATABASE)
 
     with Engine.sql() as conn:
         conn = conn
@@ -107,7 +112,6 @@ class DataBase(BaseDB):
     @property
     def session(self):
         return self.cursor
-
 
 
 class Field(object):
@@ -274,15 +278,21 @@ class Model(dict):
         return cls
 
     def create_table(self):
-        create_table_sql = "create table if not exists {} {} {}" \
-            .format(self.__table__, tuple(self.__mappings__.values()), "ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;")
-        self.session.execute(create_table_sql)
+        try:
+            create_table_sql = "create table if not exists {} {} {}" \
+                .format(self.__table__, tuple(self.__mappings__.values()), "ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;")
+            self.session.execute(create_table_sql)
+        except pymysql.err.NotSupportedError:
+            create_table_sql = "create table if not exists {} {} {}" \
+                .format(self.__table__, tuple(self.__mappings__.values()), "DEFAULT CHARSET=utf8mb4;")
+            self.session.execute(create_table_sql)
 
 
     @classmethod
     def cls_create_table(cls):
+
         create_table_sql = "create table if not exists {} {} {}" \
-            .format(cls.__table__, tuple(cls.__mappings__.values()), "ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;")
+            .format(cls.__table__, tuple(cls.__mappings__.values()), "DEFAULT CHARSET=utf8mb4;")      #ENGINE=InnoDB 
         cls.DB.session.execute(create_table_sql)
 
 
@@ -329,8 +339,9 @@ class Model(dict):
         otherwise it will use generator.
         '''
         query_result = cls.DB.session.fetchone()
-        namedTuple = tuples._make([json.loads(str(i)) for i in list(query_result)])
-        return namedTuple
+        if query_result:
+            namedTuple = tuples._make([json.loads(str(i)) for i in list(query_result)])
+            return namedTuple
 
 
     @classmethod
@@ -355,7 +366,7 @@ class Model(dict):
         return cls with sql parameter.
         '''
         if not hasattr(cls,'sql'):
-            raise ORMError("Must call Model.get() before exclude.")
+            raise ORMError("Must call Model.get() before order_by.")
 
         DESC = kwargs.pop('desc',False)
         allow_fileds = cls.allow_fileds()
@@ -400,9 +411,6 @@ class User(Model):
     PRIMARYKEY = 'id'
 
 
-
-if __name__ == '__main__':
-    c = User.get(user='hua', limit_fields=['privilege', 'passwd']).exclude(passwd='123').order_by('id', desc=True)
-    print(c.sql)
-
-
+class sessions(Model):
+    session =  StringField("session",not_null=True)
+    value =  StringField("value",not_null=True)
