@@ -20,6 +20,7 @@ Very Sexy Web Framework. Savvy?
 1. others: log system. cache system , malicious request analysis and disinfect and so on..
 1. enhancing capacity is still a mystery, pay close attention to it [https://github.com/huaxr/Pyweby/]()
 
+(支持所有web应用基本功能，包括常用api, 文件上传, json, xml 交互, 支持 epoll ,SSL ，并发,  多线程,  版本兼容, nginx 代理，用户权限cookie及session认证，微型ORM框架，模版渲染框架，丰富的自定义接口等)
 - Currently env: python2.7 - python3.7 win or linux.
 
 
