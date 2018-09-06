@@ -7,9 +7,8 @@ import threading
 from multiprocessing import Queue as MQueue
 from multiprocessing import Process
 from concurrent.futures import ThreadPoolExecutor
-from util.logger import init_loger,traceback
+from util.logger import init_loger, traceback
 from util._compat import B_DCRLF
-
 
 try:
     from Queue import Queue, Empty
@@ -18,12 +17,10 @@ except ImportError:
 
 Log = init_loger(__name__)
 
-
-__all__ = ('EventManager','Event','EventFuture','BaseEngine')
+__all__ = ('EventManager', 'Event', 'EventFuture', 'BaseEngine')
 
 
 class BaseEngine(object):
-
     WHATEVER = 0
     _template_cache = {}
     re_variable = re.compile(r'\{\{ .*? \}\}')
@@ -97,7 +94,8 @@ class Switcher(object):
     '''
     just play the part of a switch which control EventManager start or stop.
     '''
-    def __init__(self,active,thread):
+
+    def __init__(self, active, thread):
         self._active = active
         self._thread = thread
 
@@ -123,11 +121,11 @@ class _Process(Process):
 
 
 class _EventManager(Switcher):
-    def __init__(self,q):
+    def __init__(self, q):
         self._eventQ = Queue()
         self.callback_queue = q
         self._active = False
-        self._thread = threading.Thread(target = self._run_events)
+        self._thread = threading.Thread(target=self._run_events)
         self._re = re.compile(b'Content-Length: (.*?)\r\n')
         self.__re = re.compile(b'\r\n\r\n')
         super(_EventManager, self).__init__(self._active, self._thread)
@@ -136,24 +134,23 @@ class _EventManager(Switcher):
         while self._active == True:
             try:
                 # The blocking time of the event is set to 1 second.
-                event = self._eventQ.get(block = True, timeout = 1)
-                if isinstance(event,EventFunc):
+                event = self._eventQ.get(block=True, timeout=1)
+                if isinstance(event, EventFunc):
                     result = self.eventFunc(event)
                     self.callback_queue.put(result)
                     continue
             except Empty:
                 pass
 
-    def eventFunc(self,event):
+    def eventFunc(self, event):
         func = event.func
         selfer = event.selfer
         sock = event.sock
         if sock.fileno() != -1:
-            return func(selfer,sock)
+            return func(selfer, sock)
 
-    def addEvent(self,event):
+    def addEvent(self, event):
         self._eventQ.put(event)
-
 
 
 class EventManager(Switcher):
@@ -166,8 +163,8 @@ class EventManager(Switcher):
         # the switcher of the event-manager
         self._active = False
         # the thread for handling the events, witch generate from EventManager object
-        self._thread = threading.Thread(target = self._run_events)
-        self.__EPOLL = hasattr(select,'epoll')
+        self._thread = threading.Thread(target=self._run_events)
+        self.__EPOLL = hasattr(select, 'epoll')
 
         '''
         The __handlers here is a dict() that stores the 
@@ -176,28 +173,27 @@ class EventManager(Switcher):
         response functions that hold listeners for the event
         '''
         self._handlers = {}
-        super(EventManager,self).__init__(self._active,self._thread)
+        super(EventManager, self).__init__(self._active, self._thread)
 
     def _run_events(self):
         while self._active == True:
             try:
                 # The blocking time of the event is set to 1 second.
-                event = self._eventQ.get(block = True, timeout = 1)
+                event = self._eventQ.get(block=True, timeout=1)
                 # concurrent thread enable. 8.26
-                if isinstance(event,EventResponse):
+                if isinstance(event, EventResponse):
                     self._responseProcess(event)
 
-                elif isinstance(event,EventFuture):
+                elif isinstance(event, EventFuture):
                     self._futureProcess(event)
-                elif isinstance(event,Event):
+                elif isinstance(event, Event):
                     self._EventProcess(event)
                 else:
                     continue
             except Empty:
                 pass
 
-
-    def _futureProcess(self,event):
+    def _futureProcess(self, event):
         try:
             if event.sock.fileno() > 0:
                 event.sock.send(event.future.result().encode())
@@ -216,11 +212,11 @@ class EventManager(Switcher):
 
         finally:
             if self.__EPOLL:
-                event.PollCycle.close(event.sock.fileno())
+                event.PollCycle.eclose(event.sock.fileno())
             else:
                 event.PollCycle.close(event.sock)
 
-    def _responseProcess(self,event):
+    def _responseProcess(self, event):
         # msg = event.request_wrapper
         # eventManager = event.event_manager
         # sock = event.sock
@@ -250,12 +246,17 @@ class EventManager(Switcher):
 
             # do not call sock.close, because the sock still in the select,
             # for the next loop, it will raise ValueEror `fd must not -1`
-            PollCycle.close(sock)
+            if self.__EPOLL:
+                PollCycle.eclose(sock.fileno())
+            else:
+                PollCycle.close(sock)
+
+
         else:
             '''
             Question: maybe body is None, just close it means connection terminate.
             and client will receive `Empty reply from server`?
-    
+
             Answer:  No. if exception happens, or Future is waiting for 
             the result() in the EventMaster, if you close the sock, you
             will never send back message from the future!
@@ -265,8 +266,6 @@ class EventManager(Switcher):
             # self.close(sock)
             # we can't set None to it
             pass
-
-
 
     def _EventProcess(self, event):
         """handle the event"""
@@ -278,7 +277,7 @@ class EventManager(Switcher):
                     future = pool.submit(handler, event)
                     future.add_done_callback(self.task_done)
 
-    def task_done(self,finish_future):
+    def task_done(self, finish_future):
         self._eventQ.put((finish_future))
 
     def addEventListener(self, event_type, handler):  # 'future',finished_future
@@ -295,7 +294,6 @@ class EventManager(Switcher):
         if handler not in handlerList:
             handlerList.append(handler)
 
-
     def deleteEventListener(self, event_type, handler):
         """remove handler"""
         pass
@@ -304,11 +302,11 @@ class EventManager(Switcher):
         """putting event on the queue"""
         self._eventQ.put(normal_event)
 
-    def addFuture(self,future_event):
+    def addFuture(self, future_event):
         """async future handler"""
         self._eventQ.put(future_event)
 
-    def addRequestWrapper(self,wrapper_event):
+    def addRequestWrapper(self, wrapper_event):
         """async response handler"""
         self._eventQ.put(wrapper_event)
 
@@ -317,6 +315,7 @@ class Eventer(object):
     '''
     descriptor for the event's subclasses
     '''
+
     def __init__(self):
         pass
 
@@ -331,7 +330,8 @@ class Event(Eventer):
     def __init__(self, _type=None):
         self.type = _type
         self.dict = {}
-        super(Event,self).__init__()
+        super(Event, self).__init__()
+
 
 class EventFuture(Eventer):
     '''
@@ -339,7 +339,8 @@ class EventFuture(Eventer):
     and than calling EventManager.addFuture or addEvent to
     register the type of events
     '''
-    def __init__(self, future=None,_sock=None,_PollCycle=None):
+
+    def __init__(self, future=None, _sock=None, _PollCycle=None):
         self.future = future
         self.sock = _sock
         self.PollCycle = _PollCycle
@@ -348,7 +349,7 @@ class EventFuture(Eventer):
 
 
 class EventResponse(Eventer):
-    def __init__(self,writers): #msg,event_manager,sock,_PollCycle=None):
+    def __init__(self, writers):  # msg,event_manager,sock,_PollCycle=None):
         # self.request_wrapper = msg
         # self.event_manager = event_manager
         # self.sock = sock
@@ -358,7 +359,8 @@ class EventResponse(Eventer):
 
 
 class EventRecv(Eventer):
-    def __init__(self,sock=None,_impl=None,pair=None,PollCycle=None,WrapRequest=None,handlers=None,application=None):
+    def __init__(self, sock=None, _impl=None, pair=None, PollCycle=None, WrapRequest=None, handlers=None,
+                 application=None):
         self.sock = sock
         self._impl = _impl
         self.pair = pair
@@ -366,12 +368,12 @@ class EventRecv(Eventer):
         self.WrapRequest = WrapRequest
         self.handlers = handlers
         self.application = application
-        super(EventRecv,self).__init__()
+        super(EventRecv, self).__init__()
 
 
 class EventFunc(Eventer):
-    def __init__(self,func=None,selfer=None,sock=None):
+    def __init__(self, func=None, selfer=None, sock=None):
         self.func = func
         self.selfer = selfer
         self.sock = sock
-        super(EventFunc,self).__init__()
+        super(EventFunc, self).__init__()

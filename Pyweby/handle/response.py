@@ -307,7 +307,6 @@ class DangerResponse(HttpResponse):
 class WrapResponse(DangerResponse):
 
     def __init__(self,wrapper_request,event_manager=None,sock=None,PollCycle=None,**kwargs):
-
         assert issubclass(wrapper_request.__class__,HttpRequest)
 
         self.wrapper = wrapper_request

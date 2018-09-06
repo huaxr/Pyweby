@@ -28,6 +28,10 @@ Session = Session()
 
 console = Log = init_loger(__name__)
 
+JSON = intern('application/json')
+NORMAL_FORM, FILE_FORM = intern('x-www-form-urlencoded'),intern('multipart/form-data')
+PLAIN, HTML = intern('text/plain'), intern('text/html')
+XML = intern('text/xml')
 
 class Sess2dict(object):
     def __init__(self,sess):
@@ -884,7 +888,7 @@ class HttpRequest(HTTPExceptions):
         # else:
         #     s = 'def __new__(_cls, {arg_list}): return _tuple_new(_cls, ({arg_list}))'.format(arg_list=arg_list)
 
-        s = 'def __new__(_cls, {arg_list}): return _tuple_new(_cls, ({arg_list}))'.format(arg_list=arg_list)
+        s = 'def __new__(_cls, {}): return _tuple_new(_cls, ({}))'.format(arg_list,arg_list)
 
         namespace = {'_tuple_new': tuple_new, '__name__': 'namedtuple_{typename}'.format(typename=typename)}
         # exec() has the effect of interning the field names.
@@ -898,12 +902,6 @@ class HttpRequest(HTTPExceptions):
             result = tuple_new(cls, iterable)
             return result
 
-        def befor_request():
-            pass
-
-
-        def after_request():
-            pass
 
         attrs = {
             '_handler': _handler,
@@ -1101,18 +1099,18 @@ class WrapRequest(DangerousRequest):
         e.g. text, application ,..
         :return:  None
         '''
-        if any(content_type.__contains__(x) for x in ['text/plain','text/html']):
+        if any(content_type.__contains__(x) for x in [PLAIN, HTML]):
             setattr(self,'_get_arguments_enable',1)
 
         # handling form data request.
-        elif any(content_type.__contains__(x) for x in ['x-www-form-urlencoded','multipart/form-data']):
+        elif any(content_type.__contains__(x) for x in [NORMAL_FORM, FILE_FORM]):
             form_data = self.wrap_param()
             if form_data:
                 # form is enable.
                 self._form = Form(self,form_data,self.headers)
             setattr(self, '_form_enable', 1)
 
-        elif 'application/json' in content_type:
+        elif JSON in content_type:
             are_u_json = self.wrap_param()
             try:
                 self.json_content =  json.loads(are_u_json)
@@ -1123,8 +1121,7 @@ class WrapRequest(DangerousRequest):
                 self.json_content =  {}
                 Log.info("[*] wrong json format: %s" %str(are_u_json))
 
-
-        elif 'text/xml' in content_type:
+        elif XML in content_type:
             # TODO HANDLER XML
             self.xml_content = ''
             setattr(self, '_get_xml_enable', 1)

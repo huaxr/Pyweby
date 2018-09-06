@@ -1,4 +1,5 @@
-import ssl
+#coding:utf-8
+
 import time
 import os
 from handle.request import HttpRequest
@@ -13,18 +14,17 @@ from util.ormEngine import User
 
 class testRouter(HttpRequest):
     def post(self):
-        return self.get_arguments("xx","null")
+        return self.get_json()
 
     def get(self):
-        # return self.redirect("/2?key=2")
+        # return self.redirect("/test/?key=2")
         # self.raise_status(401,"sorry, you are not allowd")
         # return self.render("upload.html", name=[1, 2, 3], ignore_cache=False)
         # c = User.get(user='hua').exclude(passwd='123').commit()
         # for i in c:
         #     print(i)
-        a = self.ghost(['a','b','c'])
-        return "xxxx"
-
+        # a = self.ghost(['a','b','c'])
+        return "hahahah"
 
 class testRouter2(HttpRequest):
     executor = Executor(COUNT)
@@ -119,16 +119,16 @@ class Barrel(Configs.Application):
                          (r'/login', login),]
 
         self.settings = {
-            "ssl_options": {"ssl_enable": 0,
+            "ssl_options": {"ssl_enable": 1,
                             #TODO SSL with python2.7 env will reach ssl.Error PEM lib (_ssl.c:2693)
-                            "ssl_version": ssl.PROTOCOL_SSLv23,
+                            "ssl_version": Configs.V23,
                             "certfile": os.path.join(os.path.dirname(__file__), "static","server.crt"),
                             "keyfile": os.path.join(os.path.dirname(__file__), "static","server.key")},
 
             "template_path" : os.path.join(os.path.dirname(__file__), "templates"),
             "static_path" : os.path.join(os.path.dirname(__file__), "static"),
             "safe_cookie" : 'YnicJQBLgFAbAaP_nUJTHMA3Eq-G9WpNeREQL-qljLE=',
-            "DATABASE" : "mysql://127.0.0.1:3306/test/user=root&passwd=root", # "mongodb://127.0.0.1:27017/test"
+            "uri_prefix": "",
         }
         super(Barrel,self).__init__(self.handlers,self.settings)
 

@@ -1,4 +1,4 @@
-#coding:utf-8
+# coding:utf-8
 import ssl
 import re
 import threading
@@ -11,26 +11,28 @@ try:
 except ImportError:
     import Queue
 
-from .ServerSock import gen_serversock,SSLSocket
+from .ServerSock import gen_serversock, SSLSocket
 from .config import Configs
-from handle.request import WrapRequest,HttpRequest
+from handle.request import WrapRequest, HttpRequest
 from handle.response import WrapResponse
-from handle.exc import NoRouterHandlers,FormatterError
-from util.Engines import  EventManager,_EventManager,EventResponse,EventFunc
-from util.logger import init_loger,traceback
-from util._compat import B_DCRLF,intern
+from handle.exc import NoRouterHandlers, FormatterError
+from util.Engines import EventManager, _EventManager, EventResponse, EventFunc
+from util.logger import init_loger, traceback
+from util._compat import B_DCRLF, intern,PY2
 
 Log = init_loger(__name__)
+
 
 def thread_state(fn):
     def wrapper(self):
         if not (hasattr(self, 'eventManager') and hasattr(self, 'peventManager')):
             raise RuntimeError("Thread not started yet.")
         return fn
+
     return wrapper
 
-class MainCycle(object):
 
+class MainCycle(object):
     application = None
     '''
     do not add application in __init__, because in the subclass
@@ -38,20 +40,20 @@ class MainCycle(object):
     None, so define application here in cls.
     '''
 
-    def __init__(self,flag=False):
+    def __init__(self, flag=False):
         self.flag = flag
 
     @classmethod
-    def checking_handlers(cls,handlers,conn):
+    def checking_handlers(cls, handlers, conn):
         for uri, obj in handlers:
             assert callable(obj)
             # cls <class 'cycle_sock.PollCycle'>
-            if isinstance(uri,(str,bytes)) and issubclass(obj,HttpRequest):
+            if isinstance(uri, (str, bytes)) and issubclass(obj, HttpRequest):
                 continue
             else:
-                raise FormatterError(uri=uri,obj=obj)
+                raise FormatterError(uri=uri, obj=obj)
 
-    def ssl(self,wrapper):
+    def ssl(self, wrapper):
         raise NotImplementedError
 
 
@@ -59,35 +61,39 @@ class MagicDict(dict):
     '''
     an dict support self-defined operator
     '''
+
     def __getattr__(self, attr):
         try:
             return self[attr]
         except KeyError:
             raise AttributeError(attr)
 
-    def __setattr__(self, attr, value): self[attr] = value
+    def __setattr__(self, attr, value):
+        self[attr] = value
 
-    def __iadd__(self, rhs): self.update(rhs); return self
+    def __iadd__(self, rhs):
+        self.update(rhs); return self
 
     def __add__(self, rhs):
-        d = MagicDict(self); d.update(rhs); return d
+        d = MagicDict(self);
+        d.update(rhs);
+        return d
 
 
-
-class PollCycle(MainCycle,Configs.ChooseSelector):
-
+class PollCycle(MainCycle, Configs.ChooseSelector):
     '''
     Threading. local () is a method that holds a global variable,
     but it is accessible only to the current thread
     '''
-    pair = connection =  MagicDict()
+    pair = MagicDict()
+    connection = MagicDict()
 
-    def __init__(self,*args,**kwargs):
+    def __init__(self, *args, **kwargs):
 
-        self._impl = kwargs.get('__impl',None)
+        self._impl = kwargs.get('__impl', None)
         assert self._impl is not None
 
-        self.timeout = kwargs.get('timeout',3600)
+        self.timeout = kwargs.get('timeout', 3600)
         # self._thread_ident = threading.get_ident()
 
         # the handlers of uri-obj pair . e.g. [('/',MainHandler),]
@@ -102,13 +108,17 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
         # facilities for network sockets, both client-side and server-side
         self.ssl_options = kwargs.get('ssl_options', {})
         assert isinstance(self.ssl_options, dict)
-        self.ssl_enable =  self.ssl_options.get('ssl_enable', False)
-        self.certfile = self.ssl_options.get('certfile','')
-        self.keyfile = self.ssl_options.get('keyfile','')
+        self.ssl_enable = self.ssl_options.get('ssl_enable', False)
+        self.certfile = self.ssl_options.get('certfile', '')
+        self.keyfile = self.ssl_options.get('keyfile', '')
+        self.ssl_version = self.ssl_options.get('ssl_version', None)
 
         if self.ssl_enable and Configs.PY3:
             # self.context = ssl_context(self.ssl_options)
-            self.context = ssl.SSLContext(ssl.PROTOCOL_SSLv23)
+            self.context = ssl.SSLContext(self.ssl_version or Configs.V23)
+
+            if any(len(x) <= 0 for x in [self.certfile,self.keyfile]):
+                raise RuntimeError("[!] certfile,keyfile must defined when ssl enabled")
             self.context.load_cert_chain(certfile=self.certfile, keyfile=self.keyfile)
         else:
             self.context = None
@@ -119,7 +129,6 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
         self.queue if an Queue() for callback results.
         '''
         self.swich_eventmanager_on()
-
 
         self.__EPOLL = hasattr(select, 'epoll')
         self._re = re.compile(b'Content-Length: (.*?)\r\n')
@@ -132,77 +141,73 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
         before and after it occurs, where the function pointer is saved for
         subsequent calls.
         '''
-        setattr(self.application,'request',self)
+        setattr(self.application, 'request', self)
         self.middleware = MagicDict()
 
-        for i in map(intern,['__before__','__after__']):
-            self.middleware += { i :getattr(self.application, ''.join([i[2:-1],'request']), None)}
+        for i in map(intern, ['__before__', '__after__']):
+            self.middleware += {i: getattr(self.application, ''.join([i[2:-1], 'request']), None)}
 
-        Configs.ChooseSelector.__init__(self,flag=self.__EPOLL)
-
+        Configs.ChooseSelector.__init__(self, flag=self.__EPOLL)
 
     def swich_eventmanager_on(self):
-        #starting the  eventManager._thread  for calling _run_events
-        #and getting the events from the manager's Queue, if the Queue.get()
-        #returns future object, means we catch the add_done_callback future
-        #in finished. remember pass the sock obj for send result.
+        # starting the  eventManager._thread  for calling _run_events
+        # and getting the events from the manager's Queue, if the Queue.get()
+        # returns future object, means we catch the add_done_callback future
+        # in finished. remember pass the sock obj for send result.
 
         # thread event manager. self.queue for callback result
         self.queue = Queue.Queue()
         self.eventManager = EventManager()
-        self.peventManager =_EventManager(self.queue)
+        self.peventManager = _EventManager(self.queue)
 
-        for thread in [self.eventManager,self.peventManager]:
+        for thread in [self.eventManager, self.peventManager]:
             thread.start()
-
 
     @thread_state
     def swich_eventmanager_off(self):
         # turning down/ shutting up
-        for thread in [self.eventManager,self.peventManager]:
+        for thread in [self.eventManager, self.peventManager]:
             print(thread)
             thread.stop()
 
-
-    def listen(self,port=None):
-        self.server = gen_serversock(port,ssl_enable=self.ssl_enable)
+    def listen(self, port=None):
+        self.server = gen_serversock(port, ssl_enable=self.ssl_enable)
         PollCycle.check(self.handlers, None)
         self.add_handler(self.server, Configs.M)
 
     @classmethod
-    def check(cls,handlers,conn):
+    def check(cls, handlers, conn):
 
         if len(handlers) <= 0:
             raise NoRouterHandlers
-        cls.checking_handlers(handlers,conn)
+        cls.checking_handlers(handlers, conn)
 
     @classmethod
-    def consume(cls,message,debug=False):
+    def consume(cls, message, debug=False):
         r = message
         while True:
             msg = yield r
             if debug:
-                print("consume",msg)
+                print("consume", msg)
             if not msg:
                 return
             r = msg
 
     @classmethod
-    def Coroutine(cls,gen, msg,debug=False):
+    def Coroutine(cls, gen, msg, debug=False):
         next(gen)
-        if isinstance(gen,types.GeneratorType):
+        if isinstance(gen, types.GeneratorType):
             while True:
                 try:
                     result = gen.send(msg)
                     if debug:
-                        print("coroutine",result)
+                        print("coroutine", result)
                     gen.close()
                     return result
                 except StopIteration:
                     return
 
-
-    def server_forever_select(self,debug=False):
+    def server_forever_select(self, debug=False):
         # this is blocking select.select io
         while True:
             try:
@@ -210,10 +215,14 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
                 # so we should pass it checking
                 fd_event_pair = self._impl.sock_handlers(self.timeout)
             except OSError as e:
-                Log.info(traceback(e,"error"))
+                Log.info(traceback(e, "error"))
                 continue
 
-            for sock,event in fd_event_pair:
+            except KeyboardInterrupt:
+                self.server.close()
+                break
+
+            for sock, event in fd_event_pair:
                 if event & Configs.R:
                     if sock is self.server:
                         conn, address = sock.accept()
@@ -228,7 +237,7 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
                                 conn = self.ssl(ssl_wrapper)
                                 conn.setblocking(0)
 
-                        except (ssl.SSLError,OSError) as e:
+                        except (ssl.SSLError, OSError) as e:
                             Log.info(traceback(e))
                             self.close(conn)
                             continue
@@ -273,13 +282,10 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
 
                             if data:
                                 # mark here for execute global_before_request
-                                _kw = {}
-                                _before_func = self.middleware.get('__before__')
-                                if _before_func:
-                                    _kw['before'] = _before_func()
+                                _kw = self.before_request()
 
                                 data = WrapRequest(data, lambda x: dict(x), handlers=self.handlers,
-                                                   application=self.application, sock=sock,**_kw)
+                                                   application=self.application, sock=sock, **_kw)
                                 # for later usage, when the next Loop by the kernel select, that's
                                 # will be reuse the data putting in it.
                                 if sock in self.pair:
@@ -305,16 +311,15 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
                         # consider future.result() calling and non-blocking , we should
                         # activate the EventManager, and trigger sock.send() later in the
                         # EventManager sub threads Looping.
-                        writers = WrapResponse(msg,self.eventManager,sock,self,**self.middleware)
+                        writers = WrapResponse(msg, self.eventManager, sock, self, **self.middleware)
                         event = EventResponse(writers)
                         self.eventManager.addRequestWrapper(event)
 
                 else:
-                    Log.info(traceback("other reason, close sock","error"))
+                    Log.info(traceback("other reason, close sock", "error"))
                     self.close(sock)
 
-
-    def server_forever_epoll(self, debug=False,timeout=-1):
+    def server_forever_epoll(self, debug=False, timeout=-1):
         '''
         Enhance the performance of IO loop.
         Using epoll first if condition promise.
@@ -335,7 +340,7 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
                 continue
 
             if debug:
-                Log.info("there are %d events prepare to handling." %len(events))
+                Log.info("there are %d events prepare to handling." % len(events))
 
             for fileno, event in events:
                 # If active socket is the current server socket, represent that is a new connection.
@@ -348,13 +353,8 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
                             conn = self.ssl(ssl_wrapper)
                             conn.setblocking(0)
 
-                    except ssl.SSLError as e:
+                    except (ssl.SSLError, OSError) as e:
                         Log.info(traceback(e))
-                        self.close(conn)
-                        continue
-
-                    except OSError as e2:
-                        Log.info(traceback(e2))
                         self.close(conn)
                         continue
 
@@ -368,20 +368,33 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
                 # select.EPOLLIN == 1, if event =1, than & operation will return 1.
                 # trigger the event handler.
                 elif event & select.EPOLLIN:
-                    sock = self.connection.get(fileno,None)
+                    sock = self.connection.get(fileno, None)
                     if sock is None or sock.fileno() == -1:
                         continue
+
+                    # try:
+                    #     data = sock.recv(6000)
+                    # except Exception as e:
+                    #     Log.info(traceback(e))
+                    #     self.eclose(fileno)
+                    #     continue
+                    event = EventFunc(PollCycle.blocking_recv, self, sock)
+                    self.peventManager.addEvent(event)
+
                     try:
-                        data = sock.recv(6000)
-                    except Exception as e:
-                        Log.info(traceback(e))
-                        self.eclose(fileno)
+                        data = self.queue.get()
+                    except Queue.Empty:
                         continue
+
                     # now on wrapper the request
-                    data = WrapRequest(data,lambda x:dict(x),handlers=self.handlers,
-                                           application=self.application,sock=sock)
 
                     if data:
+
+                        _kw = self.before_request()
+
+                        data = WrapRequest(data, lambda x: dict(x), handlers=self.handlers,
+                                           application=self.application, sock=sock, **_kw)
+
                         if fileno in self.pair:
                             # manually modify socket status in epoll.
                             # this is the core epoll IO mechanism.
@@ -410,6 +423,7 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
                         # core reason, savvy?
                         self._impl.modify(fileno, select.EPOLLIN)
                     else:
+                        '''
                         writers = WrapResponse(msg, self.eventManager, sock, self)
                         body = writers.gen_body(prefix="\r\n\r\n")
                         if body:
@@ -422,11 +436,16 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
                             self.eclose(fileno)
                         else:
                             continue
+                        '''
+                        writers = WrapResponse(msg, self.eventManager, sock, self, **self.middleware)
+                        event = EventResponse(writers)
+                        self.eventManager.addRequestWrapper(event)
+
 
                 # Close Event
                 elif event & select.EPOLLHUP:
                     if debug:
-                        Log.info("Closing event,%d" %fileno)
+                        Log.info("Closing event,%d" % fileno)
 
                     self.eclose(fileno)
 
@@ -442,13 +461,16 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
         else:
             self._impl.add_sock(fd, events)
 
-    def modify(self,sock):
-        self._impl.modify_sock(sock,Configs.W)
+    def modify(self, sock):
+        self._impl.modify_sock(sock, Configs.W)
 
-
-    def close(self,sock):
+    def close(self, sock):
         # assert isinstance(sock,socket.socket)
         self._impl.remove_sock(sock)
+        if PY2:
+            # reference Google solves the problem that SSL socket reception can not be returned
+            # in python2 environment.
+            sock.shutdown(socket.SHUT_RDWR)
         sock.close()
         '''
         threading.local declare:
@@ -459,15 +481,14 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
         >>> self.MSG_QUEUE.pair 
         that will raise Error like below:
         `AttributeError: '_thread._local' object has no attribute 'pair'`
-        
+
         so, here we can't use local() 
         '''
         # TODO
         if sock in self.pair:
             self.pair.pop(sock)
 
-
-    def eclose(self,fd):
+    def eclose(self, fd):
         '''
         a collection operators for closing an socket from the poll
         and the defined variable from this sock.
@@ -476,13 +497,16 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
         try:
             self._impl.unregister(fd)
             sock = self.connection.pop(fd)
+            if PY2:
+                # reference Google solves the problem that SSL socket reception can not be returned
+                # in python2 environment.
+                sock.shutdown(socket.SHUT_RDWR)
             sock.close()
             self.pair.pop(fd)
         except Exception:
             pass
 
-
-    def trigger_handlers(self,kw):
+    def trigger_handlers(self, kw):
         '''
         to generate handlers pairs.
         find_router will call this to distribute an request handler.
@@ -490,7 +514,7 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
         raise NotImplementedError
 
 
-    def ssl(self,wrapper):
+    def ssl(self, wrapper):
         '''
         To support ssl, you need to make ssl-context, which is used
         to wrap sockets so that their certificate and private keys are valid
@@ -505,7 +529,7 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
             return wrapper.conn
 
     @classmethod
-    def blocking_recv(cls,self, sock):
+    def blocking_recv(cls, self, sock):
         sock.settimeout(5)
         data_ = []
         length = 0
@@ -549,7 +573,6 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
             elif data.startswith(b'DELETE'):
                 pass
 
-
             if self._POST:
                 if length <= pos:
                     if data and not data.startswith(b'POST'):
@@ -564,3 +587,11 @@ class PollCycle(MainCycle,Configs.ChooseSelector):
                         data_.append(data)
                         pos += len(data)
         return b''.join(data_)
+
+
+    def before_request(self):
+        _kw = {}
+        _before_func = self.middleware.get('__before__')
+        if _before_func:
+            _kw['before'] = _before_func()
+        return _kw

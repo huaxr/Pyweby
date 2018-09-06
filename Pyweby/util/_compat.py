@@ -13,6 +13,7 @@ win32 = sys.platform.startswith('win')
 cpython = not pypy and not jython
 
 PY3 = sys.version_info >= (3,)
+PY2 = sys.version_info < (3, 0)
 
 if hasattr(os,'cpu_count'):
     COUNT = (os.cpu_count() or 1) * 5
@@ -32,7 +33,7 @@ if PY3:
 
 else:
     STRING = (str, unicode,bytes)
-    from urllib import urlparse, unquote
+    from urlparse import urlparse, unquote
     REDUCE = reduce
     URLPARSE = urlparse
     UNQUOTE = unquote

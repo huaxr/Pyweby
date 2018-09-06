@@ -6,6 +6,11 @@ import time
 from .config import Configs
 from util.logger import Logger
 
+try:
+    from os import uname
+except Exception:
+    from platform import uname
+
 Log = Logger(__name__)
 
 
@@ -45,7 +50,7 @@ class SSLSocket(object):
         return stream
 
     def ssl_py2_context(self):
-        stream = ssl.wrap_socket(self.conn,self.cert,self.key,server_side=True,ssl_version=ssl.PROTOCOL_SSLv23)
+        stream = ssl.wrap_socket(self.conn,self.key,self.cert,server_side=True,ssl_version=ssl.PROTOCOL_SSLv23)
         return stream
 
 
@@ -75,7 +80,7 @@ def gen_serversock(port=None,ssl_enable=False):
     except socket.error as e:
         Log.critical("[*] Server Socket occupation conflict")
         raise e
-    Log.info("[*] Hello, {}@Pyweby master.".format(socket.gethostname()))
+    Log.info("[*] Hello, {}@Pyweby master.".format(socket.gethostname() or uname().node))
 
     time.sleep(0.5)
     Log.info("[*] Server %s://%s:%d started! fd=[%s]" %("https" if ssl_enable else "http",HOST,PORT,s.fileno()))

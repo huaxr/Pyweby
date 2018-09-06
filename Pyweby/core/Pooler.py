@@ -1,6 +1,7 @@
 import select
 
 import itertools
+import socket
 
 from .Looper import PollCycle
 from .config import Configs
@@ -11,6 +12,7 @@ import time
 from threading import Timer
 
 Log = Logger(logger_name=__name__)
+SLASH = '/'
 
 class _select(object):
     def __init__(self):
@@ -33,7 +35,7 @@ class _select(object):
         # you can try `print(self.read_fds, self.write_fds, self.error_fds)`
         # to find the reason. (cause when sock close, sock.fd = -1)
             readable, writeable, exceptions = select.select(self.read_fds, self.write_fds, self.error_fds, timeout)
-        except (ValueError,OSError,select.error) as e:
+        except (ValueError,OSError,select.error,socket.error) as e:
             Log.critical(traceback(e))
             self.remove_negative_fd()
             return []
@@ -132,6 +134,26 @@ class SelectCycle(PollCycle,Configs.BarrelCheck):
         '''
         app = self.application
         if app:
-            return app.handlers
+            handlers = []
+            tmp =  app.handlers
+            for i,j in tmp:
+                if i.startswith(SLASH):
+                    pass
+                else:
+                    i = SLASH + i
+                handlers.append((i,j))
+
+            prefix = app.settings.get('uri_prefix',None)
+
+            if prefix:
+                if prefix.startswith(SLASH):
+                    pass
+                else:
+                    prefix = SLASH + prefix
+                mapper = map(lambda i: (prefix + i[0], i[1]), handlers)
+                if isinstance(mapper,map):
+                    return list(mapper)
+                return mapper
+            return handlers
         return kw.get('handlers',[])
 
