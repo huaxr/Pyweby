@@ -304,10 +304,24 @@ def post(self):
 
 ```python
 @login_require
-class testRouter4(HttpRequest):
+class admin(HttpRequest):
     def get(self):
-        name = self.request.get_arguments('name', 'defalut')
-        return name,200
+        user =  self.current_user or self.request.current_user()
+        if user:
+            return "admin user %s, your priv is %s" %(user.name,user.can_upload)
+        else:
+            self.set_header("xxxxx","yyy")
+            self.raise_status(401)
+
+    def post(self):
+        user = self.current_user
+        if user.can_upload:
+            filename = self.file.filename
+            print(filename)
+            self.file.saveto("/tmp"+filename)
+            return "success"
+        else:
+            return "sorry , only is_admin can upload files"
 ```
 
 ### ORM session. 8.25
