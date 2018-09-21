@@ -1,4 +1,4 @@
-#coding:utf-8
+# coding:utf-8
 import itertools
 import sys
 import ssl
@@ -7,22 +7,22 @@ import ssl
 class Globals(dict):
     def __init__(self):
         self.context = []
-        super(Globals,self).__init__()
+        super(Globals, self).__init__()
 
-    def register(self,item):
+    def register(self, item):
         self.context.append(item)
 
     def __getattr__(self, item):
-        return self.get(item,None)
+        return self.get(item, None)
 
     def __setattr__(self, key, value):
         self[key] = value
 
     def __delattr__(self, item):
-        self.pop(item,None)
+        self.pop(item, None)
 
     def __iadd__(self, other):
-        assert  isinstance(other,dict)
+        assert isinstance(other, dict)
         self.update(other)
         return self
 
@@ -37,23 +37,21 @@ class Globals(dict):
 
 class Configs(object):
     PY3 = sys.version_info >= (3,)
-    METHODS = ['GET', 'POST',b'GET',b'POST', 'OPTIONS', 'PUT', 'DELETE', b'OPTIONS', b'PUT', b'DELETE']
+    METHODS = ['GET', 'POST', b'GET', b'POST', 'OPTIONS', 'PUT', 'DELETE', b'OPTIONS', b'PUT', b'DELETE']
     V23 = ssl.PROTOCOL_SSLv23
     R = 0x01
     W = 0x04
     E = 0x08
-    M = 0x0F  #for main socket
+    M = 0x0F  # for main socket
 
     class Application(object):
-        def __init__(self,handlers=None,settings=None):
-
+        def __init__(self, handlers=None, settings=None):
             self.ok_value(self)
-            assert isinstance(handlers, (list,tuple,set)) and len(handlers) > 0, 'NO Handlers'
-            assert isinstance(settings,dict), 'Settings value must be a dict object'
+            assert isinstance(handlers, (list, tuple, set)) and len(handlers) > 0, 'NO Handlers'
+            assert isinstance(settings, dict), 'Settings value must be a dict object'
             self.handlers = handlers
             self.settings = settings
             self._init()
-
 
         def _init(self):
             global Global
@@ -65,10 +63,9 @@ class Configs(object):
         def get_settings(self):
             return self.settings
 
-        def ok_value(self,arg):
+        def ok_value(self, arg):
             if '__impl' in dir(arg):
                 raise SyntaxError('keyword argument repeated of this application\'s self')
-
 
     class BarrelCheck(object):
 
@@ -76,23 +73,22 @@ class Configs(object):
             self.application = None
             self.settings = None
 
-        def if_define_barrel(self,args,kwargs):
+        def if_define_barrel(self, args, kwargs):
             for i in itertools.chain(args, kwargs.keys()):
-                if isinstance(i, self.__class__.__class__) and issubclass(i,Configs.Application):
-                    return True,i
+                if isinstance(i, self.__class__.__class__) and issubclass(i, Configs.Application):
+                    return True, i
 
-            return False,None
+            return False, None
 
-        def wrapper_barrel(self,obj, kwargs):
+        def wrapper_barrel(self, obj, kwargs):
             '''
             add application method, wrapper it to an instance attribute
             bind kwargs of SelectCycle.
             '''
             obj = obj()
-            kwargs.update({'application':obj})
+            kwargs.update({'application': obj})
             self.application = obj
             # self.settings = self.application.settings
-
 
     class ChooseSelector(object):
 
@@ -100,8 +96,10 @@ class Configs(object):
             self.flag = flag
 
         def server_forever(self, debug=False):
-            if self.flag:
+            if self.flag == "EPOLL":
                 self.server_forever_epoll(debug=debug)
+            elif self.flag == "KQUEUE":
+                self.server_forever_kqueue(debug=debug)
             else:
                 self.server_forever_select(debug=debug)
 
@@ -111,6 +109,9 @@ class Configs(object):
         def server_forever_select(self, **kw):
             raise NotImplementedError
 
+        def server_forever_kqueue(self, **kwargs):
+            raise NotImplementedError
+
 
 Global = Globals()
-Global += {"DATABASE" : "mysql://127.0.0.1:3306/test?user=root&passwd=root"}
+Global += {"DATABASE": "mysql://127.0.0.1:3306/test?user=root&passwd=787518771"}

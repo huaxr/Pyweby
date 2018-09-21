@@ -68,7 +68,7 @@ class EpollCycle(PollCycle,Configs.BarrelCheck):
                 else:
                     prefix = '/' + prefix
                 mapper = map(lambda i: (prefix + i[0], i[1]), handlers)
-                if isinstance(mapper,map):
+                if isinstance(mapper, map):
                     return list(mapper)
                 return mapper
             return handlers

@@ -9,6 +9,7 @@ import struct
 import six
 import hashlib
 
+from abc import ABCMeta, abstractmethod
 from util.Engines import BaseEngine
 from collections import namedtuple
 from handle.auth import Session,PRIVILIGE,user_level
@@ -18,10 +19,27 @@ from util.logger import init_loger,traceback
 from .exc import MethodNotAllowedException,ApplicationError,HTTPExceptions,Abort
 from contextlib import contextmanager
 from util._compat import bytes2str,CRLF,DCRLF,B_CRLF,\
-    B_DCRLF,AND,EQUALS,SEMICOLON,STRING,_None,bytes2defaultcoding,UNQUOTE,intern,PY36
+    B_DCRLF,AND,EQUALS,SEMICOLON,STRING,_None,bytes2defaultcoding,UNQUOTE,intern,HTTPCLIENT
 
 from util.ormEngine import sessions
+from util.inspecter import set_header_check,set_headers_check ,observer_check
 
+
+@six.add_metaclass(ABCMeta)
+class AsyncHTTPClient():
+    observer = []
+
+    @abstractmethod
+    def add(self,observer):
+        pass
+
+    @abstractmethod
+    def remove(self,observer):
+        pass
+
+    @abstractmethod
+    def notify(self):
+        pass
 
 
 Session = Session()
@@ -32,6 +50,8 @@ JSON = intern('application/json')
 NORMAL_FORM, FILE_FORM = intern('x-www-form-urlencoded'),intern('multipart/form-data')
 PLAIN, HTML = intern('text/plain'), intern('text/html')
 XML = intern('text/xml')
+REQUEST = intern('request')
+
 
 class Sess2dict(object):
     def __init__(self,sess):
@@ -347,7 +367,7 @@ class MetaRouter(type):
                 if None in (method, path, version):
                     return WrapRequest.INTERNAL_SERVER_ERROR
 
-                _log = '\t\t'.join([method, sock_from, path + '?' + query if query else path])
+                _log = '\t\t'.join([method, sock_from+':'+str(sock_port), path + '?' + query if query else path])
                 console.info(_log)
                 _match_res = MetaRouter._re_match(self.handlers, path)
                 if _match_res:
@@ -805,10 +825,18 @@ class HttpRequest(HTTPExceptions):
         return _abortting(code,*args,**kwargs)
 
 
+    @set_header_check
     def set_header(self,k,v):
         with self.REQUEST as req:
             if req:
                 return req.set_header(k,v)
+
+    @set_headers_check
+    def set_headers(self,dict):
+        with self.REQUEST as req:
+            if req:
+                return req.set_headers(dict)
+
 
     def redirect(self,uri,permanent_redirect = False,status=None):
         with self.REQUEST as req:
@@ -922,7 +950,7 @@ class HttpRequest(HTTPExceptions):
     @property
     @contextmanager
     def REQUEST(self):
-        yield getattr(self,'request') if hasattr(self,'request') else None
+        yield getattr(self,REQUEST) if hasattr(self,REQUEST) else None
 
 
 class Bad_Request(HttpRequest):
@@ -1075,6 +1103,10 @@ class WrapRequest(DangerousRequest):
         self.regdata = re.compile(DCRLF)
         self.b_regdata = re.compile(B_DCRLF)
         self.headers = self.wrap_headers(self.request_data)
+
+        self.keep_alive = self.headers.get('Connection','')
+        self.keepalive = 1 if self.keep_alive.lower() == 'keep-alive' else 0
+
         self.content_type =  self.headers.get('Content-Type',None)
             # Classification of content-type
         if self.content_type:
@@ -1339,6 +1371,15 @@ class WrapRequest(DangerousRequest):
             self.__header__ = 0
 
 
+    def set_headers(self,dicts):
+        for k, v in dicts.items():
+            if k in self.response_header:
+                self.response_header[k] = self.response_header[k] + ' ' + v
+            else:
+                self.response_header[k] = v
+                self.__header__ = 0
+
+
     def render(self,path,**kwargs):
         '''
         render provides an interface to rendering Python-Object to html element.
@@ -1511,3 +1552,102 @@ class WrapRequest(DangerousRequest):
 
     def raise_status(self,code,*args,**kwargs):
         return super(WrapRequest, self).raise_status(code)
+
+
+
+class Notify(AsyncHTTPClient):
+
+    @observer_check
+    def add(self,observer):
+        self.observer.append(observer)
+
+    @observer_check
+    def remove(self,observer):
+        self.observer.remove(observer)
+
+    def notify(self):
+        for ob in self.observer:
+            ob.requests()
+
+    def __iadd__(self, other):
+        self.add(other)
+
+
+@six.add_metaclass(ABCMeta)
+class Observer():
+    def __init__(self,ob):
+        self.ob = ob
+
+    def urlopen(self,observer):
+        url = observer.url
+        data = observer.data
+        headers = observer.headers
+        # if data is None, default is get method, else POST
+        req = HTTPCLIENT.Request(url=url, data=data,headers=headers)
+        res = HTTPCLIENT.urlopen(req)
+        return res
+
+    @abstractmethod
+    def requests(self):
+        pass
+
+class ClientObserver(Observer):
+    RES = []
+    def requests(self):
+        res = self.urlopen(self.ob)    # need call .read to read the content
+        self.RES.append(res)
+
+
+class NAMEDTUPLE(object):
+    def __init__(self,url=None,data=None,headers=None):
+        self.url = url
+        self.data = data
+        self.headers = headers
+        self.namedtupel = namedtuple('xx', ['url', 'data', 'headers'])
+
+    def __call__(self, *args, **kwargs):
+        return self.namedtupel(url=self.url,data=self.data,headers=self.headers)
+
+
+    def __repr__(self):
+        return self.__call__()
+
+
+class AsyncClient(object):
+    notify = Notify()
+
+    def add_request(self,url=None,data=None,headers=None):
+        '''
+        call notify add to add an observer request in the
+        notity's observer
+
+        >>> a = AsyncClient()
+        >>> a.add_request('https://www.baidu.com',b'x',{})
+        '''
+        klaus = NAMEDTUPLE(url=url, data=data, headers=headers)()
+        ob = ClientObserver(klaus)
+        self.notify.add(ob)
+
+    def add_requests(self,list):
+        '''
+        add list object to the notify observer.
+        list like [('http://xx',b'x',{})]
+
+        '''
+        for uri,data,headers in list:
+            klaus = NAMEDTUPLE(url=uri, data=data, headers=headers)()
+            ob = ClientObserver(klaus)
+            self.notify.add(ob)
+
+    def request(self):
+        self.notify.notify()
+
+    @property
+    def get_result(self):
+        # this method will return all the request.urlopen result.
+        # HTTPResponse object, the RES is a class-attribute which was
+        # shared by all the abserver.
+        return self.notify.observer[0].RES
+
+
+

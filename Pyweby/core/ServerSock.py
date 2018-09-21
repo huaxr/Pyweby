@@ -5,6 +5,7 @@ import time
 
 from .config import Configs
 from util.logger import Logger
+from util._compat import HOSTNAME
 
 try:
     from os import uname
@@ -69,8 +70,7 @@ class SSLSocket(object):
 
 def gen_serversock(port=None,ssl_enable=False):
 
-    HOST = socket.gethostbyname(socket.gethostname()) or '127.0.0.1'
-    # HOST = "127.0.0.1"
+    HOST = socket.gethostbyname(HOSTNAME)
     PORT = 443 if ssl_enable else 80
     PORT = port or PORT
     try:
@@ -83,8 +83,8 @@ def gen_serversock(port=None,ssl_enable=False):
     Log.info("[*] Hello, {}@Pyweby master.".format(socket.gethostname() or uname().node))
 
     time.sleep(0.5)
-    Log.info("[*] Server %s://%s:%d started! fd=[%s]" %("https" if ssl_enable else "http",HOST,PORT,s.fileno()))
+    Log.info("[*] Server %s://%s:%d started! fd=[%s]" %("https" if ssl_enable else "http", HOST, PORT, s.fileno()))
     time.sleep(0.2)
-    Log.info('\t\t\t'.join(['Method','From','Index']))
+    Log.info('\t\t\t'.join(['Method', 'From', 'Index']))
     return s
 

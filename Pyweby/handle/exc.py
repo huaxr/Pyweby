@@ -129,3 +129,10 @@ class Abort(object):
 class ORMError(Exception):
     def __init__(self,msg=None):
         super(ORMError,self).__init__(msg or self.__class__.__name__)
+
+
+
+class InspectorError(Exception):
+    def __init__(self, msg=None,type=None):
+        if type == 'arguments':
+            super(InspectorError, self).__init__(msg or 'InspectorError when parse {}'.format(type.title()))

@@ -17,20 +17,19 @@ class testRouter(HttpRequest):
         return self.get_json()
 
     def get(self):
-        # return self.redirect("/test/?key=2")
-        # self.raise_status(401,"sorry, you are not allowd")
+        #return self.redirect("/test/?key=2")
+        self.raise_status(401, "sorry, you are not allowd")
         # return self.render("upload.html", name=[1, 2, 3], ignore_cache=False)
         # c = User.get(user='hua').exclude(passwd='123').commit()
         # for i in c:
         #     print(i)
         # a = self.ghost(['a','b','c'])
-        return "hahahah"
+        #self.set_headers({"Connection":"Keep-Alive"})
 
 class testRouter2(HttpRequest):
     executor = Executor(COUNT)
-
     @asyncpool(executor=executor)
-    def sleeper(self,counts):
+    def sleeper(self, counts):
         time.sleep(counts)
         return "sleeper call over, %d" %(counts)
 
@@ -85,7 +84,7 @@ class register(HttpRequest):
         name = self.get_arguments('name', '')
         passwd = self.get_arguments('passwd', '')
         level = self.get_arguments('level', 'R').upper()
-        with User(id='',user=name,passwd=passwd,privilege=level,information={'sign':'never give up','nickname':'华'}) as u:
+        with User(id=0,user=name,passwd=passwd,privilege=level,information={'sign':'never give up','nickname':'华'}) as u:
             u.save()
         return "register ok. please login."
 
@@ -119,8 +118,8 @@ class Barrel(Configs.Application):
                          (r'/login', login),]
 
         self.settings = {
-            "ssl_options": {"ssl_enable": 1,
-                            #TODO SSL with python2.7 env will reach ssl.Error PEM lib (_ssl.c:2693)
+            "ssl_options": {"ssl_enable": 0,
+                            # TODO SSL with python2.7 env will reach ssl.Error PEM lib (_ssl.c:2693) Solved :2018.9.6
                             "ssl_version": Configs.V23,
                             "certfile": os.path.join(os.path.dirname(__file__), "static","server.crt"),
                             "keyfile": os.path.join(os.path.dirname(__file__), "static","server.key")},
@@ -130,7 +129,7 @@ class Barrel(Configs.Application):
             "safe_cookie" : 'YnicJQBLgFAbAaP_nUJTHMA3Eq-G9WpNeREQL-qljLE=',
             "uri_prefix": "",
         }
-        super(Barrel,self).__init__(self.handlers,self.settings)
+        super(Barrel, self).__init__(self.handlers,self.settings)
 
     def before_request(self):
         pass
@@ -138,11 +137,10 @@ class Barrel(Configs.Application):
     def after_request(self):
         pass
 
-
 if __name__ == '__main__':
     loop = Looper()
     server = loop(Barrel) or loop(handlers=[(r'/hello',testRouter2),],enable_manager=1)
-    server.listen()
+    server.listen(8731)
     server.server_forever(debug=False)
 
 

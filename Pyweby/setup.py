@@ -8,7 +8,6 @@ setup(
     author_email="787518771@qq.com",
     description=("Very Sexy Web Framework. savvy?"),
     license="GPLv3",
-    keywords="redis subscripe",
     url="https://github.com/huaxr/Pyweby",
 
     install_requires=[

@@ -270,8 +270,8 @@ class DangerResponse(HttpResponse):
         except MethodNotAllowedException as e:
             print(e)
 
-    def ok_body(self,body):
-        #TODO sync is not supported yet , finished at   8.16
+    def ok_body(self, body):
+        # TODO sync is not supported yet , finished at   8.16
         if isinstance(body,_base.Future):
             '''
             client code usually does not ask whether the Future
@@ -285,8 +285,7 @@ class DangerResponse(HttpResponse):
             notes:  .result() method can accept timeout=int as parameter,
             when block timeout, `TimeoutError` will be raised. 
             '''
-
-            #self is WrapResponse, add_done_callback(fn) finally call fn(self)
+            # self is WrapResponse, add_done_callback(fn) finally call fn(self)
             body.add_done_callback(self.callback_result)
 
     def callback_result(self,*args):
@@ -295,13 +294,8 @@ class DangerResponse(HttpResponse):
     def gen_body(self):
         raise NotImplementedError
 
-
     def transe_format(self,arg):
         raise NotImplementedError
-
-
-
-
 
 
 class WrapResponse(DangerResponse):
@@ -369,7 +363,6 @@ class WrapResponse(DangerResponse):
     def get_writer(self):
         return self.wrapper.conn_obj
 
-
     def switch_method(self,method=None):
         '''
         here is decided to branch , the user define class has the router string ,
@@ -418,12 +411,10 @@ class WrapResponse(DangerResponse):
                 '''
                 nexter = self.auth_check(ROUTER, '')
 
-
-    def discern_result(self,time_consuming_op=None):
-        '''
+    def discern_result(self, time_consuming_op=None):
+        """
         recognize the router to go, and generator response body and status!
-        :return:
-        '''
+        """
 
         # if self.method is not in the allowed list-methods, that self.method
         # is set `pyweby` , which means an mistakenly usage of http request method
@@ -436,17 +427,17 @@ class WrapResponse(DangerResponse):
             if result:
                 # when using cache_result for caching the result in CacheEngine
                 # the descriptor will turn te result to be CacheEngine Object.
-                if isinstance(result,(types.MethodType,dict,CacheEngine)):
+                if isinstance(result, (types.MethodType, dict, CacheEngine)):
                     return result
 
-                elif isinstance(result,(str,bytes)):
+                elif isinstance(result, (str, bytes)):
                     body, status = result, 200
 
-                elif isinstance(result,(tuple,list)) and len(result) == 2:
+                elif isinstance(result, (tuple, list)) and len(result) == 2:
                     body, status = result[0], result[1]
-                    assert isinstance(status,int) and  status in self.msg_pair.keys(), StatusError(status=status)
+                    assert isinstance(status, int) and status in self.msg_pair.keys(), StatusError(status=status)
 
-                elif isinstance(result,types.FunctionType):
+                elif isinstance(result, types.FunctionType):
                     body,status = result()
 
                 else:
@@ -460,8 +451,7 @@ class WrapResponse(DangerResponse):
             else:
                 raise StopIteration("Error result at `discern_result`")
 
-
-    def gen_headers(self,version, status, msg, add_header=None):
+    def gen_headers(self, version, status, msg, add_header=None):
         tmp = []
         '''
         return the headers that contains the response prefix
@@ -492,7 +482,6 @@ class WrapResponse(DangerResponse):
         # print(header)
         return header + "\r\n\r\n"
 
-
     def gen_exception_body(self,code,msg,status_message=None,pretty=True):
         if pretty:
             yield u'<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">\n'
@@ -506,16 +495,13 @@ class WrapResponse(DangerResponse):
             yield u'</body>\n'
             yield u'</html>'
 
-
     def get_exption_description(self,msg):
         return u'<p>%s</p>' % msg
-
 
     def gen_html(self):
         pass
 
-
-    def gen_body(self,  prefix="\r\n\r\n", if_need_result = False,debug=True):
+    def gen_body(self, prefix="\r\n\r\n", if_need_result=False, debug=True):
         '''
         generator the body contains headers
         :param prefix: this prefix to tail whether the response package is integrity
@@ -530,7 +516,7 @@ class WrapResponse(DangerResponse):
                     X_X_X = tmp()
                 else:
                     try:
-                        X_X_X =tmp()
+                        X_X_X = tmp()
                     except _HttpException:
                         return
                     except Exception as e:
@@ -538,20 +524,20 @@ class WrapResponse(DangerResponse):
                         return self.not_future_body(500, '<h1>internal server error</h1>', prefix=prefix)
 
                 # when no result return.
-                if  X_X_X is None:
+                if X_X_X is None:
                     # You just need to generate a 302 hop and pass it to sock.
                     response_for_no_return = self.gen_headers(self.version, None, None)
                     return response_for_no_return
 
-                if isinstance(X_X_X,(list,tuple)):
-                    body,status = X_X_X
+                if isinstance(X_X_X, (list,tuple)):
+                    body, status = X_X_X
                 else:
 
-                    body,status = X_X_X,200    # 200 OK response for default.
+                    body, status = X_X_X,200    # 200 OK response for default.
 
             # when using @restful
             elif isinstance(tmp, dict):
-                body ,status = tmp, tmp.get('status',502)
+                body, status = tmp, tmp.get('status', 502)
 
             # when using @cache_result
             elif isinstance(tmp, CacheEngine):
@@ -559,7 +545,6 @@ class WrapResponse(DangerResponse):
 
             else:
                 raise NoHandlingError
-
 
         except _HttpException as e:
 
@@ -579,13 +564,11 @@ class WrapResponse(DangerResponse):
             return self.gen_headers(self.version, int(e), msg,add_header=add_header)\
                    + str(bodys)
 
-
         except Exception as e:
             Log.warning(traceback(e))
-            tb._context_message()
             return self.not_future_body(500, '<h1>internal server error</h1>', prefix=prefix)
 
-        if isinstance(body,dict):
+        if isinstance(body, dict):
             return self.restful_body(body,status)
 
         elif isinstance(body, _base.Future):
@@ -607,23 +590,28 @@ class WrapResponse(DangerResponse):
             self.ok_body(body)
 
         else:
-            return self.not_future_body(status, "".join(["<p>",str(body),"</p>"]), prefix)
+            return self.not_future_body(status, "".join(["<p>", str(body), "</p>"]), prefix)
 
-
-    def callback_result(self,finished_future):
+    def callback_result(self, finished_future):
         # gen_body finishing will callback the method
         assert isinstance(finished_future, _base.Future)
-        assert  finished_future.done() == True
+        assert finished_future.done() is True
         self.trigger_event(finished_future)
 
-
-    def trigger_event(self,future):
-        '''
+    def trigger_event(self, future):
+        """
         the function simulate a event_source like object, just for padding
         the EventManager Queue to handling delay Future result.
-        '''
+        """
+
+        # headers add new at 18.9.21. chrome browser need complete response header. otherwise
+        # response message would not parsed automatically and ERR_INVALID_HTTP_RESPONSE triggered.
+        # see : https://stackoverflow.com/questions/43460538/python-server-on-port-8080-err-invalid-http-response
+        # -when-accessed-from-chrome
+        headers = self.gen_headers(self.version, 200, 'OK', add_header={'Content-Type': 'text/html'})
+
         if issubclass(EventFuture, Eventer):
-            event = EventFuture(future,self.sock,_PollCycle=self.PollCycle)
+            event = EventFuture(future, self.sock, _PollCycle=self.PollCycle, headers=headers)
             event.dict["type"] = u'futures'
             if self.event_manager is None:
                 raise EventManagerError
@@ -641,7 +629,7 @@ class WrapResponse(DangerResponse):
         if prefix != u'\r\n' * 2:
             return json.dumps(body)
         else:
-            return self.gen_headers(self.version, status, msg,add_header={'Content-Type': 'text/html'}) + str(body)
+            return self.gen_headers(self.version, status, msg, add_header={'Content-Type': 'text/html'}) + str(body)
 
     def set_header(self,k,v):
         return {k:v}
@@ -657,7 +645,6 @@ class WrapResponse(DangerResponse):
                                 add_header=self.set_header("Content-Type","application/json")) + \
                                 str(json.dumps(body))
 
-
     def render_embed_css(self, css_embed):
         return b'<style type="text/css">\n' + b'\n'.join(css_embed) + \
                b'\n</style>'
@@ -665,7 +652,6 @@ class WrapResponse(DangerResponse):
     def render_embed_js(self, js_embed):
         return b'<script type="text/javascript">\n//<![CDATA[\n' + \
                b'\n'.join(js_embed) + b'\n//]]>\n</script>'
-
 
     def render_linked_css(self, css_files_list):
 

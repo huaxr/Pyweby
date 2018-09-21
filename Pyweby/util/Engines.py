@@ -126,6 +126,7 @@ class _EventManager(Switcher):
         self.callback_queue = q
         self._active = False
         self._thread = threading.Thread(target=self._run_events)
+
         self._re = re.compile(b'Content-Length: (.*?)\r\n')
         self.__re = re.compile(b'\r\n\r\n')
         super(_EventManager, self).__init__(self._active, self._thread)
@@ -165,6 +166,7 @@ class EventManager(Switcher):
         # the thread for handling the events, witch generate from EventManager object
         self._thread = threading.Thread(target=self._run_events)
         self.__EPOLL = hasattr(select, 'epoll')
+        self.__KQUEUE = hasattr(select, 'kqueue')
 
         '''
         The __handlers here is a dict() that stores the 
@@ -172,11 +174,12 @@ class EventManager(Switcher):
         Each of these keys corresponds to a list of one-to-many 
         response functions that hold listeners for the event
         '''
+
         self._handlers = {}
         super(EventManager, self).__init__(self._active, self._thread)
 
     def _run_events(self):
-        while self._active == True:
+        while self._active is True:
             try:
                 # The blocking time of the event is set to 1 second.
                 event = self._eventQ.get(block=True, timeout=1)
@@ -186,35 +189,42 @@ class EventManager(Switcher):
 
                 elif isinstance(event, EventFuture):
                     self._futureProcess(event)
+
                 elif isinstance(event, Event):
                     self._EventProcess(event)
+
                 else:
                     continue
+
             except Empty:
                 pass
 
     def _futureProcess(self, event):
-        try:
-            if event.sock.fileno() > 0:
-                event.sock.send(event.future.result().encode())
-            else:
-                pass
+        sock = event.sock
+        future = event.future
+        pollcycle = event.PollCycle
+        headers = event.headers
 
-        except OSError as e:
+        response = headers + str(future.result())
+        try:
+            if sock.fileno() > 0:
+                sock.sendall(response.encode())
+
+        except (OSError, Exception) as e:
             '''
             when calling sock.send, you must verify that the socket is not
             closed yet, if that happens, will raise OSError so will ignore
             it means op system has invoke GC for us. 
             '''
             Log.info(traceback(e))
-        except Exception as e:
-            Log.info(traceback(e))
 
         finally:
             if self.__EPOLL:
-                event.PollCycle.eclose(event.sock.fileno())
+                pollcycle.eclose(sock.fileno())
+            elif self.__KQUEUE:
+                pollcycle.kclose(sock)
             else:
-                event.PollCycle.close(event.sock)
+                pollcycle.close(sock)
 
     def _responseProcess(self, event):
         # msg = event.request_wrapper
@@ -223,10 +233,13 @@ class EventManager(Switcher):
         # PollCycle = event.PollCycle
         # writers = WrapResponse(msg,eventManager,sock,PollCycle)
         writers = event.writers
+        # keeping alive and don't close sock
+        keepalive = writers.wrapper.keepalive
         sock = writers.sock
         PollCycle = writers.PollCycle
 
         body = writers.gen_body(prefix="\r\n\r\n")
+
         if body:
             try:
                 bodys = body.encode()
@@ -236,21 +249,23 @@ class EventManager(Switcher):
             # employ curl could't deal with 302
             # you should try firefox or chrome instead
             sock.sendall(bodys)
-
             # when requst finished , the sock send all the msg.
             # call after_request.
-            after_request = writers.kwargs.get('__after__', None)
 
+            after_request = writers.kwargs.get('__after__', None)
             if after_request:
                 after_request()
 
             # do not call sock.close, because the sock still in the select,
             # for the next loop, it will raise ValueEror `fd must not -1`
             if self.__EPOLL:
-                PollCycle.eclose(sock.fileno())
-            else:
-                PollCycle.close(sock)
+                PollCycle.eclose(sock.fileno(), keepalive=keepalive)
 
+            elif self.__KQUEUE:
+                PollCycle.kclose(sock, keepalive=keepalive)
+
+            else:
+                PollCycle.close(sock, keepalive=keepalive)
 
         else:
             '''
@@ -340,10 +355,11 @@ class EventFuture(Eventer):
     register the type of events
     '''
 
-    def __init__(self, future=None, _sock=None, _PollCycle=None):
+    def __init__(self, future=None, _sock=None, _PollCycle=None, headers=None):
         self.future = future
         self.sock = _sock
         self.PollCycle = _PollCycle
+        self.headers = headers
         self.dict = {}
         super(EventFuture, self).__init__()
 

@@ -3,9 +3,13 @@ from core.Pooler import SelectCycle
 
 try:
     from core.Epoller import EpollCycle
-except (ImportError,AttributeError):
+except (ImportError, AttributeError):
     EpollCycle = SelectCycle
 
+try:
+    from core.Kpoller import KpollCycle
+except (ImportError, AttributeError):
+    KpollCycle = SelectCycle
 
 
 class Router(object):
@@ -28,6 +32,7 @@ class Router(object):
     def __init__(self,*args,**kwargs):
 
         super(self.__class__,self).__init__()
+
 
     @classmethod
     def ok_value(cls,ins):
@@ -80,12 +85,17 @@ class DistributeRouter(Router):
     def _choosen(cls):
         if hasattr(select, 'epoll'):
             from core.Epoller import EpollCycle
-            return  EpollCycle
+            return EpollCycle
         if hasattr(select, "kqueue"):
-            # on BSD or Mac
-            pass
+            # on BSD or Mac OS X
+            return KpollCycle
+
         if hasattr(select,'select'):
             return SelectCycle
+
+        else:
+            raise NotImplementedError
+
 
     @classmethod
     def _choose(cls):
@@ -111,20 +121,20 @@ class DistributeRouter(Router):
 
     @classmethod
     def ok_value(cls,instance):
-        assert isinstance(instance, (SelectCycle,EpollCycle,)), 'Error base instance to handler'
+        assert isinstance(instance, (SelectCycle, EpollCycle, KpollCycle,)), 'Error base instance to handler'
 
 
 class Looper(DistributeRouter):
-    def __init__(self,handlers=None,enable_manager=False,*args,**kwargs):
+    def __init__(self, handlers=None, enable_manager=False, *args, **kwargs):
         self.handlers = handlers
         self.enable_manager = enable_manager
-        self.template_path = kwargs.get('template_path','')
-        self.static_path = kwargs.get('static_path','')
+        self.template_path = kwargs.get('template_path', '')
+        self.static_path = kwargs.get('static_path', '')
 
-        super(Looper,self).__init__(*args,**kwargs)
+        super(Looper, self).__init__(*args, **kwargs)
 
     def __call__(self, *args, **kwargs):
-        return self.listen(kwargs.get('port',8000))
+        return self.listen(kwargs.get('port', 8000))
 
     def listen(self,port):
         '''

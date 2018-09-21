@@ -15,13 +15,30 @@ if asyncio is not None:
 
 class Executor(ThreadPoolExecutor):
     '''
-    __all__ = (ThreadPoolExecutor,)
+    ThreadPoolExecutor attribute:
 
-    def __getattr__(name):
-        if name == 'ThreadPoolExecutor':
-            from .thread import ThreadPoolExecutor as te
-            ThreadPoolExecutor = te
-            return te
+    example:
+    def gcd(pair):
+        a, b = pair
+        low = min(a, b)
+        for i in range(low, 0, -1):
+            if a % i == 0 and b % i == 0:
+                return i
+
+    numbers = [
+        (1963309, 2265973), (1879675, 2493670), (2030677, 3814172),
+        (1551645, 2229620), (1988912, 4736670), (2198964, 7876293)
+    ]
+
+
+    - map:
+    with ProcessPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(gcd, numbers))
+
+    - submit
+    with ProcessPoolExecutor(max_workers=2) as pool:
+        for pair in numbers:
+            future = pool.submit(gcd, pair)
     '''
     _instance_ = None
 
@@ -64,7 +81,7 @@ def asyncpool(*args, **kwargs):
         executor = kwargs.get("executor", exector_default)
 
         @functools.wraps(fn)
-        def wrapper(self,*args, **kwargs):
+        def wrapper(self, *args, **kwargs):
             '''
             self is the router you defined which is subclass of HttpRequest,
             submit arguments detail.
@@ -74,8 +91,7 @@ def asyncpool(*args, **kwargs):
             >>> print(self,*args, **kwargs)
             >>  returns <class '__main__.testRouter'> (5,) {}
             '''
-            future = executor.submit(fn,self, *args, **kwargs)
-
+            future = executor.submit(fn, self, *args, **kwargs)
             '''
             call result() method from future object is blocking method.
             so , here we could't return this directly
@@ -100,3 +116,4 @@ def safe_lock(func):
             return func(self, *args, **kwargs)
 
     return lock
+

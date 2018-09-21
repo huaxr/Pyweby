@@ -1,5 +1,6 @@
 import sys
 import os
+import socket
 
 PY36 = sys.version_info >= (3, 6)
 py33 = sys.version_info >= (3, 3)
@@ -15,6 +16,15 @@ cpython = not pypy and not jython
 PY3 = sys.version_info >= (3,)
 PY2 = sys.version_info < (3, 0)
 
+if sys.platform != 'darwin':
+    # mac os will raise
+    # when using `socket.gethostbyname(socket.gethostname())`
+    # socket.gaierror: [Errno 8] nodename nor servname provided, or not known
+    HOSTNAME = socket.gethostname()
+else:
+    HOSTNAME = 'localhost' or ''
+
+
 if hasattr(os,'cpu_count'):
     COUNT = (os.cpu_count() or 1) * 5
 else:
@@ -23,22 +33,30 @@ else:
 if PY3:
     STRING = (str,bytes)
     from urllib.parse import urlparse,unquote
+    from urllib import request
     from functools import reduce
     from sys import intern  # intern str operation. differ from py2
+
     REDUCE = reduce
     URLPARSE = urlparse
     UNQUOTE = unquote
     EXCEPTION_MSG = lambda e: e.args
     intern = intern
+    HTTPCLIENT = request
+    
 
 else:
-    STRING = (str, unicode,bytes)
+    import urllib2 as HTTPCLIENT
     from urlparse import urlparse, unquote
+    STRING = (str, unicode, bytes)
     REDUCE = reduce
     URLPARSE = urlparse
     UNQUOTE = unquote
     EXCEPTION_MSG = lambda e: e.message
     intern = intern
+    HTTPCLIENT = HTTPCLIENT
+    # req = REQUEST.Request(url='%s%s%s' % (url,'?',textmod),headers=header_dict)
+    # REQUEST.urlopen(req)
 
 class _None(object):
 
