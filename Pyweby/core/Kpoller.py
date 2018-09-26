@@ -42,7 +42,6 @@ class KpollCycle(PollCycle, Configs.BarrelCheck):
                 raise ValueError('safe_cookie must be set in Application\'s setting')
             self.application.settings['safe_cookie_handler'] = Cipher(safe_cookie)
 
-
         kwargs.update({'__impl': self._KQUEUE})
         super(KpollCycle, self).__init__(*args, **kwargs)
 

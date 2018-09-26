@@ -54,7 +54,6 @@ class SSLSocket(object):
         stream = ssl.wrap_socket(self.conn,self.key,self.cert,server_side=True,ssl_version=ssl.PROTOCOL_SSLv23)
         return stream
 
-
     def ssl_context(self):
         if Configs.PY3:
             return self.ssl_py3_context()

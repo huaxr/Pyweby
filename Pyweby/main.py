@@ -5,8 +5,8 @@ import os
 from handle.request import HttpRequest
 from core.router import  Looper
 from core.config import Configs
-from core._concurrent import Executor,asyncpool
-from handle.response import restful,cache_result
+from core._concurrent import Executor, asyncpool
+from handle.response import restful, cache_result
 from handle.auth import login_require
 from util._compat import COUNT
 from util.ormEngine import User
@@ -25,6 +25,7 @@ class testRouter(HttpRequest):
         #     print(i)
         # a = self.ghost(['a','b','c'])
         #self.set_headers({"Connection":"Keep-Alive"})
+
 
 class testRouter2(HttpRequest):
     executor = Executor(COUNT)
@@ -46,6 +47,7 @@ class testRouter2(HttpRequest):
     def post(self):
         return "xxx"   # form support
 
+
 class cookie(HttpRequest):
     @restful           # use restful before the cache_result !
     @cache_result(expiration=60)
@@ -65,7 +67,7 @@ class admin(HttpRequest):
         if user:
             return "admin user %s, your priv is %s" %(user.name,user.can_upload)
         else:
-            self.set_header("xxxxx","yyy")
+            self.set_header("xxxxx", "yyy")
             self.raise_status(401)
 
     def post(self):
@@ -118,7 +120,7 @@ class Barrel(Configs.Application):
                          (r'/login', login),]
 
         self.settings = {
-            "ssl_options": {"ssl_enable": 0,
+            "ssl_options": {"ssl_enable": 1,
                             # TODO SSL with python2.7 env will reach ssl.Error PEM lib (_ssl.c:2693) Solved :2018.9.6
                             "ssl_version": Configs.V23,
                             "certfile": os.path.join(os.path.dirname(__file__), "static","server.crt"),
@@ -137,10 +139,11 @@ class Barrel(Configs.Application):
     def after_request(self):
         pass
 
+
 if __name__ == '__main__':
     loop = Looper()
-    server = loop(Barrel) or loop(handlers=[(r'/hello',testRouter2),],enable_manager=1)
-    server.listen(8731)
+    server = loop(Barrel) or loop(handlers=[(r'/hello', testRouter2), ], enable_manager=1)
+    server.listen(8736)
     server.server_forever(debug=False)
 
 

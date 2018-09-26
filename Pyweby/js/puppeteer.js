@@ -1,4 +1,3 @@
-
 // usage:
 // step1: git clone https://github.com/GoogleChrome/puppeteer.git
 // step2: npm i puppeteer [use `npm config set puppeteer_download_host=https://npm.taobao.org/mirrors` npm source for downloading headless chrome]
@@ -25,7 +24,6 @@ var util = require('util');
 //connection.connect();
 //var  addSql = 'INSERT INTO vluns(id,title,serial,time,component,cve,type) VALUES(0,?,?,?,?,?,?)';
 
-
 //using mongodb
 //mongodb usage: version>2.6 required
 //curl -O https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-3.0.6.tgz
@@ -38,7 +36,6 @@ var util = require('util');
 var MongoClient = require('mongodb').MongoClient;
 var url = "mongodb://localhost:27017/vluns";
 
-
 process.setMaxListeners(0);  //MaxListenersExceededWarning: Possible EventEmitter memory leak detected
 
 let scrape = async() => {
@@ -46,7 +43,7 @@ let scrape = async() => {
         var retry_max_2 = 0;
         var flag_max = 0;
 
-        for(let p=1;p<=2837;p++){
+        for(let p=801;p<=1000;p++){
 
             for(let i=1; i<=20; i++){
 
@@ -95,8 +92,6 @@ let scrape = async() => {
                     await browser.close();
                     continue;
                 }
-
-
                 //await page.waitForNavigation(['networkidle0', 'load', 'domcontentloaded']);  //Error: Execution context was destroyed, most likely because of a navigation.? Solved?
                 try{
                     await page.waitForNavigation({waitUntil:['load','domcontentloaded'],timeout:20000});
@@ -116,28 +111,46 @@ let scrape = async() => {
                 await page.waitFor(800);
 
                 const result = await page.evaluate(async () => {
+                    var title, serial, time, component, cve, type, affect_version, level;
                     try{
-
-                        let serial = document.querySelector('#j-vul-basic-info > div > div:nth-child(1) > dl:nth-child(1) > dd > a').innerText.trim();
-                        let time = document.querySelector('#j-vul-basic-info > div > div:nth-child(1) > dl:nth-child(3) > dd').innerHTML.trim();
-                        let component = document.querySelector('#j-vul-basic-info > div > div:nth-child(2) > dl:nth-child(2) > dd > a').innerText.trim();
-                        let cve = document.querySelector('#j-vul-basic-info > div > div:nth-child(3) > dl:nth-child(1) > dd > a').getAttribute('href').trim();
-                        let title = document.querySelector('#j-vul-title > span').innerText;
-                        let type = document.querySelector('#j-vul-basic-info > div > div:nth-child(2) > dl:nth-child(1) > dd > a').innerText.trim();
-                        return {title,serial,time,component,cve,type};
+                        serial = document.querySelector('#j-vul-basic-info > div > div:nth-child(1) > dl:nth-child(1) > dd > a').innerText.trim();
+                        time = document.querySelector('#j-vul-basic-info > div > div:nth-child(1) > dl:nth-child(3) > dd').innerHTML.trim();
+                        component = document.querySelector('#j-vul-basic-info > div > div:nth-child(2) > dl:nth-child(2) > dd > a').innerText.trim();
+                        title = document.querySelector('#j-vul-title > span').innerText.trim();
+                        type = document.querySelector('#j-vul-basic-info > div > div:nth-child(2) > dl:nth-child(1) > dd > a').innerText.trim();
                        } catch(e){
                             // await page.waitFor(2000); SyntaxError: await is only valid in async function
-                            // if return result, odd to raise Error:
+                            // if return result, odd to raise Error:ne
                             // UnhandledPromiseRejectionWarning: Error: Evaluation failed: ReferenceError: result is not defined
                             setTimeout(function(){console.log("some error.continue")},3000);
                             return null;
                        }
+
+                    try{
+                        cve = document.querySelector('#j-vul-basic-info > div > div:nth-child(3) > dl:nth-child(1) > dd > a').getAttribute('href').trim();
+                    }catch(e){
+                        cve = "";
+                    }
+
+                    try{ // there may have this css-selector or not. so handle it here.
+                        affect_version = document.querySelector("#j-vul-basic-info > div > div:nth-child(2) > dl:nth-child(2) > dd > span").getAttribute('data-original-title').trim();
+                    }catch(e){
+                        affect_version = "";
+                    }
+
+                    try{
+                        level = document.querySelector("#j-vul-basic-info > div > div:nth-child(1) > dl:nth-child(4) > dd > div").getAttribute("data-original-title").trim();
+                    }catch(e){
+                        level = "";
+                    }
+
+                    return {title,serial,time,component,cve,type,affect_version,level};
+
                 });
 
                 if(result){
                     console.log(result.title)
                     if(Object.keys(result).length>0){
-
                         //use mysql
 //                        var  addSqlParams = [result.title, result.browser,result.time, result.component,result.cve,result.type];
 //                        connection.query(addSql,addSqlParams,function (err, result) {
@@ -146,21 +159,17 @@ let scrape = async() => {
 //                            }
 //                        });
 
-
                         //use mongodb
                          MongoClient.connect(url,{ useNewUrlParser: true }, function(err, db) {
                             if (err) throw err;
                             var dbo = db.db("vluns");
-                            dbo.collection("seebug").insertOne(result, function(err, res) {
+                            dbo.collection("test5").insertOne(result, function(err, res) {
                                 if (err) throw err;
                                 db.close();
                             });
                         });
-
                     }
-
                 }
-
                 // when use browser.close() rather than await . may cause error like below:
                 // Error: Protocol error (Target.createTarget): Target closed.
                 // reason:

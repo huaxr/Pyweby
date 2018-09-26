@@ -398,11 +398,35 @@ class WrapResponse(DangerResponse):
                 '''
                 nexter = self.auth_check(ROUTER,'get')
 
-            elif method.upper() in ('POST',b'POST'):
+            elif method.upper() in ('POST', b'POST'):
                 '''
                 handler POST method
                 '''
                 nexter = self.auth_check(ROUTER, 'post')
+
+            elif method.upper() in ('PUT', b'PUT'):
+                '''
+                handler put method
+                '''
+                nexter = self.auth_check(ROUTER, 'put')
+
+            elif method.upper() in ('DELETE', b'DELETE'):
+                '''
+                handler delete method
+                '''
+                nexter = self.auth_check(ROUTER, 'delete')
+
+            elif method.upper() in ('HEAD', b'HEAD'):
+                '''
+                handler head method
+                '''
+                nexter = self.auth_check(ROUTER, 'HEAD')
+
+            elif method.upper() in ('OPTIONS', b'OPTIONS'):
+                '''
+                handler options method
+                '''
+                nexter = self.auth_check(ROUTER, 'OPTIONS')
 
             else:
                 '''
@@ -502,14 +526,14 @@ class WrapResponse(DangerResponse):
         pass
 
     def gen_body(self, prefix="\r\n\r\n", if_need_result=False, debug=True):
-        '''
+        """
         generator the body contains headers
-        :param prefix: this prefix to tail whether the response package is integrity
-        '''
+        param prefix: this prefix to tail whether the response package is integrity
+        """
+
         try:
             tmp = self.discern_result(time_consuming_op=self.switch_method(self.method))
             # tmp is <bound method testRouter.get>
-
             if isinstance(tmp, types.MethodType):
                 # Do not try execute tmp() twice.
                 if debug:
@@ -517,8 +541,10 @@ class WrapResponse(DangerResponse):
                 else:
                     try:
                         X_X_X = tmp()
+
                     except _HttpException:
                         return
+
                     except Exception as e:
                         Log.critical(traceback(e))
                         return self.not_future_body(500, '<h1>internal server error</h1>', prefix=prefix)

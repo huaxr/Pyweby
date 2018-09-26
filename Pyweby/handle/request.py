@@ -1342,7 +1342,7 @@ class WrapRequest(DangerousRequest):
         self.make_warning(4)
         return self.get_argument if self.get_argument else ''
 
-    def redirect(self,uri,permanent_redirect = False,status=None):
+    def redirect(self, uri, permanent_redirect=False, status=None):
         # 302 header looks like:
         # HTTP/1.1 302 Moved Temporarily
         # Location: path

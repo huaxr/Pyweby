@@ -2,16 +2,10 @@
 import copy
 import ssl
 import re
-import sys
 import threading
 import socket
 import types
 import select
-
-try:
-    import queue as Queue
-except ImportError:
-    import Queue
 
 from .ServerSock import gen_serversock, SSLSocket
 from .config import Configs
@@ -21,6 +15,11 @@ from handle.exc import NoRouterHandlers, FormatterError
 from util.Engines import EventManager, _EventManager, EventResponse, EventFunc
 from util.logger import init_loger, traceback
 from util._compat import B_DCRLF, intern, PY2
+
+try:
+    import queue as Queue
+except ImportError:
+    import Queue
 
 Log = init_loger(__name__)
 
@@ -60,9 +59,10 @@ class MainCycle(object):
 
 
 class MagicDict(dict):
-    '''
+    """
     an dict support self-defined operator
-    '''
+
+    """
 
     def __getattr__(self, attr):
         try:
@@ -74,21 +74,24 @@ class MagicDict(dict):
         self[attr] = value
 
     def __iadd__(self, rhs):
-        self.update(rhs);
+        self.update(rhs)
         return self
 
     def __add__(self, rhs):
-        d = MagicDict(self);
-        d.update(rhs);
+        d = MagicDict(self)
+        d.update(rhs)
         return d
 
     def truncate(self):
         self.clear()
         return
 
+    def __contains__(self, item):
+        return item in self.keys()
+
 
 class PollCycle(MainCycle, Configs.ChooseSelector):
-    '''
+    """
     Threading. local () is a method that holds a global variable,
     but it is accessible only to the current thread.
 
@@ -103,11 +106,11 @@ class PollCycle(MainCycle, Configs.ChooseSelector):
 
     so, here we can't use threading.local()
 
-    '''
+    """
+
     PAIR = threading.local()
     pair = MagicDict()
     connection = MagicDict()
-
 
     def __init__(self, *args, **kwargs):
 
@@ -172,8 +175,6 @@ class PollCycle(MainCycle, Configs.ChooseSelector):
             self.middleware += {i: getattr(self.application, ''.join([i[2:-1], 'request']), None)}
 
         Configs.ChooseSelector.__init__(self, flag=self.__FLAG)
-
-
 
     def swich_eventmanager_on(self):
         """
@@ -493,10 +494,14 @@ class PollCycle(MainCycle, Configs.ChooseSelector):
 
     def server_forever_kqueue(self, debug=False):
         """
+        (Only supported on BSD.)
+        Returns a kernel event object;
         For BSD or Mac os. kevent is first consider to become the IO Loop for
         these operation system.
         easy achievement. todo better later. it's not suggest using mac env.
         """
+
+        # generate kevent list for socket reading operation
         kevents = [select.kevent(self.server.fileno(), filter=select.KQ_FILTER_READ, flags=select.KQ_EV_ADD), ]
         while 1:
             # doc file : https://docs.python.org/3/library/select.html#kqueue-objects
@@ -506,30 +511,72 @@ class PollCycle(MainCycle, Configs.ChooseSelector):
             2.max_events must be 0 or a positive integer
             3.timeout in seconds (floats possible)  , every timeout seconds loop it. like a heartbeat.
             '''
+            try:
+                # starting kqueue, if there has executable kevent, return the kevent-list directly
+                eventlist = self._impl.control(kevents, 10, 10)  # eventlist has no server.
+            except select.error as e:
+                print(e)
+                break
 
-            eventlist = self._impl.control(kevents, 10, 10)  # eventlist has no server.
-            for event in eventlist:
-                if event.ident == self.server.fileno():
-                    conn, _ = self.server.accept()
-                    conn.setblocking(0)
-                    self.connection[conn.fileno()] = conn
-                    kevents.append(select.kevent(conn.fileno(), select.KQ_FILTER_READ, select.KQ_EV_ADD, udata=conn.fileno()))
+            if eventlist:
+                for event in eventlist:
+                    if event.ident == self.server.fileno():
+                        conn, _ = self.server.accept()
 
-            for fileno, sock in self.connection.items():
-                if sock.fileno() != -1:
-                    data = PollCycle.blocking_recv(self, sock, timeout=20)
+                        try:
+                            with SSLSocket(self.context, conn, self.certfile, self.keyfile) as ssl_wrapper:
+                                conn = self.ssl(ssl_wrapper)
+                                conn.setblocking(0)
 
-                    if data:
-                        _kw = self.before_request()
-                        data_ = WrapRequest(data, lambda x: dict(x), handlers=self.handlers,
-                                            application=self.application, sock=sock, **_kw)
-                        writers = WrapResponse(data_, self.eventManager, sock, self, **self.middleware)
-                        eventer = EventResponse(writers)
-                        self.eventManager.addRequestWrapper(eventer)  # called kclose already. just release kevents.
+                        except (ssl.SSLError, OSError) as e:
+                            Log.info(traceback(e))
+                            self.close(conn)
+                            continue
+
+                        conn.setblocking(0)
+                        self.connection[conn.fileno()] = conn
+                        kevents.append(select.kevent(conn.fileno(), select.KQ_FILTER_READ, select.KQ_EV_ADD, udata=conn.fileno()))
+
+                    else:
+                        # if not socket connect, than get the connection and doing write operation on it!
+                        if event.udata >= 1 and event.flags == select.KQ_EV_ADD and event.filter == select.KQ_FILTER_READ:
+                            conn = self.connection[event.udata]
+                            data = PollCycle.blocking_recv(self, conn, timeout=20)
+
+                            if data:
+                                _kw = self.before_request()
+                                data_ = WrapRequest(data, lambda x: dict(x), handlers=self.handlers,
+                                            application=self.application, sock=conn, **_kw)
+                                writers = WrapResponse(data_, self.eventManager, conn, self, **self.middleware)
+                                eventer = EventResponse(writers)
+                                self.eventManager.addRequestWrapper(eventer)  # called kclose already. just release kevents.
+
+                                try:
+                                    kevents.remove(select.kevent(self.connection[event.udata].fileno(), select.KQ_FILTER_READ,
+                                                            select.KQ_EV_ADD, udata=event.udata))
+                                except ValueError:
+                                    pass
+
+                                if event.data in self.connection:
+                                    del self.connection[event.udata]
+
+                '''
+                for fileno, sock in self.connection.items():
+                    if sock.fileno() != -1:
+                        data = PollCycle.blocking_recv(self, sock, timeout=20)
+
+                        if data:
+                            _kw = self.before_request()
+                            data_ = WrapRequest(data, lambda x: dict(x), handlers=self.handlers,
+                                                application=self.application, sock=sock, **_kw)
+                            writers = WrapResponse(data_, self.eventManager, sock, self, **self.middleware)
+                            eventer = EventResponse(writers)
+                            self.eventManager.addRequestWrapper(eventer)  # called kclose already. just release kevents.
+                '''
 
             # there may another way? ugly code should be replaced.
-            self.connection.truncate()
-            kevents = kevents[0:1]
+            # self.connection.truncate()
+            # kevents = [select.kevent(self.server.fileno(), filter=select.KQ_FILTER_READ, flags=select.KQ_EV_ADD), ]
 
     def add_handler(self, fd, events):
         '''
@@ -645,18 +692,21 @@ class PollCycle(MainCycle, Configs.ChooseSelector):
                 pos = len(part_part)
                 self._POST = True
 
-
             elif data.startswith(b'PUT'):
-                pass
-
-            elif data.startswith(b'OPTIONS'):
-                pass
-
-            elif data.startswith(b'HEAD'):
-                pass
+                sock.setblocking(1)
+                self._PUT = True
 
             elif data.startswith(b'DELETE'):
-                pass
+                sock.setblocking(1)
+                self._DELETE = True
+
+            elif data.startswith(b'OPTIONS'):
+                sock.setblocking(1)
+                self._OPTIONS = True
+
+            elif data.startswith(b'HEAD'):
+                sock.setblocking(1)
+                self._HEAD = True
 
             if self._POST:
                 if length <= pos:
