@@ -116,7 +116,6 @@ class Session(dict):
     def __delitem__(self, session):
         del self.dict[session]
 
-
     def __iter__(self):
         return self.dict.items()
 
@@ -135,10 +134,8 @@ class Session(dict):
     def values(self):
         return self.dict.values()
 
-
     def clear(self):
         self.dict.clear()
-
 
     def __contains__(self, item):
         return item in self.dict
@@ -146,6 +143,5 @@ class Session(dict):
     def __iadd__(self, other):
         self.update(other)
         return self
-
 
     def __add__(self, other): d = Session();d.update(other);return d

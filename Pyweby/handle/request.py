@@ -66,6 +66,7 @@ class Sess2dict(object):
             res[k] = v
         return res
 
+
 def ExceptHandler(func):
     def wrapper(self, *args, **kwargs):
         try:
@@ -100,10 +101,8 @@ class _property(property):
 
         super(_property,self).__init__()
 
-
     def __set__(self, obj, value):
         obj.__dict__[self.__name__] = value
-
 
     def __get__(self, instance, owner=None):
 
@@ -134,7 +133,6 @@ class _property(property):
         return value
 
 
-
 class File(object):
     '''
     request.file
@@ -161,7 +159,6 @@ class File(object):
             return tmp.get(item,_None)
 
         return object.__getattribute__(self, item)
-
 
     @ExceptHandler
     def saveto(self,path):
@@ -193,8 +190,6 @@ class File(object):
     def make_secure_name(self):
         _file = self.filename
 
-
-
     def __enter__(self):
         return self
 
@@ -207,6 +202,7 @@ class File(object):
                                                             'which you can access the properties ' \
                                                             'of a file object, such as filename, type of ' \
                                                             'upload, hexadecimal ,and so on.'
+
 
 class BaseForm(object):
 
@@ -288,7 +284,6 @@ class Form(BaseForm):
                                 self.form_data_info = tmp
                                 self.form_data_raw = form_data_raw.strip()
 
-
                 elif isinstance(self.form_data,bytes):
                     _re = re.compile(self.boundary.encode())
                     __re = re.compile(B_CRLF)
@@ -323,12 +318,10 @@ class Form(BaseForm):
         # print(self.form_data_raw)
         self.binding_file()
 
-
     def binding_file(self):
         if hasattr(self,'form_data_info'):
             with File(self.form_data_info,self.form_data_raw) as _f:
                 setattr(self.WrapRequest,'_file',_f)
-
 
     @property
     def parse(self):
@@ -341,12 +334,11 @@ class Form(BaseForm):
 
 
 class MetaRouter(type):
-    '''
+    """
     we abstract router lookup into this metaclass, making the code logic more compact,
     making request, response communication more intuitive. isn't it?
-    '''
+    """
     def __new__(cls, name, bases, attrs):
-
         def __find_handler(self):
             # if login_require setting up. checking the router and judge whether cookie is legitimate.
             router = self.wrapper.find_router()
@@ -355,13 +347,18 @@ class MetaRouter(type):
             return router
 
         def __find_router(self):
-            '''
+            """
             get_first_line has been returned by decorator,
             so it's changed to be a property value
-            :return:
-            '''
+            """
             try:
                 method, path, query, version = [bytes2str(i) for i in list(self.get_first_line)]
+
+                tmp = cls.handler_rpc(method, path)
+
+                if tmp:
+                    return WrapRequest.RPC_ROUTER_ONLY, []
+
                 sock_from, sock_port = self.sock.getpeername()
                 # print the request log . query may be None
                 if None in (method, path, version):
@@ -396,7 +393,6 @@ class MetaRouter(type):
             pass
         return type.__new__(cls, name, bases, attrs)
 
-
     @classmethod
     def _re_match(cls,handlers,path):
         for _path in handlers.keys():
@@ -409,16 +405,87 @@ class MetaRouter(type):
         for _path, _obj in handlers.items():
             xx = re.compile(_path).findall(path)
 
+
+#######################################################################   added below 2018.10.12
+
+
+    @classmethod
+    def handler_rpc(cls, method, path):
+        """
+        we define the router "/rpc2" as the rpc call.
+        :param path:
+        :return:
+        """
+        if path == "/rpc2" and method == "POST":
+            # TODO doing the json interface.
+            return 1
+
+        else:
+            return
+
+    def get_json(self):
+        raise NotImplementedError
+
+
+class RPCMethods(object):
+    """
+    this class is only for cache the rpc register func
+    in the self.fn by decorator @jsonrpc.
+    """
+    def __init__(self):
+        self.fn = []
+
+    def register(self, method):
+        """
+        register method for rpc service calling. this implement should review later.
+        :param method:
+        :return:
+        """
+        if method not in self.fn:
+            self.fn.append(method)
+
+    def unregister(self, method):
+        try:
+            self.fn.remove(method)
+        except ValueError:
+            return
+
+    def service(self, method, arg_dict):
+        if method in self.fn:
+            args = json.loads(arg_dict)
+            result = method(*args)
+            return json.dumps(result)
+
+        else:
+            result = {"msg": "wrong"}
+            return json.dumps(result)
+
+
+RPC = RPCMethods()
+
+
+def jsonrpc(fn):
+    """
+    decorator for add functions in the RPCMethods.fn.
+    :param fn:
+    :return:
+    """
+    def wrapper(*args, **kwargs):
+        print(args, kwargs)
+        RPC.register(fn)
+    return wrapper
+
+############################################################
+
+
 class method_check(object):
 
     def __init__(self,fn):
 
         self.func = fn
 
-
     def __contains__(self, item):
         return item in Configs.METHODS
-
 
     def __get__(self,instance,cls=None):
 
@@ -486,7 +553,6 @@ class TemplateEngine(BaseEngine):
         self.__generate_python_func()
         super(TemplateEngine, self).__init__(self.raw_html)
 
-
     def render(self, kwargs):
         _ignore = kwargs.pop('ignore_cache', False)
         # add defined namespace first
@@ -508,7 +574,6 @@ class TemplateEngine(BaseEngine):
 
         result = kwargs[self.magic_func]()
         return result
-
 
     def __generate_python_func(self):
         builder = self.builder
@@ -658,7 +723,6 @@ ModuleEngine = TemplateEngine
 _abortting = Abort(extra=extra)
 
 
-
 @six.add_metaclass(MetaRouter)
 class HttpRequest(HTTPExceptions):
     def __init__(self,headers=None,handlers=None,sock =None):
@@ -675,17 +739,12 @@ class HttpRequest(HTTPExceptions):
         if self:
             return "{name}".format(name=self.__class__)
 
-
     def get_first_line(self):
         raise NotImplementedError
 
-
     @property
     def get_argument(self):
-        '''
-        phrase arguments safely
-        :return:
-        '''
+        # phrase arguments safely
         arguments = self.wrap_param()
         if arguments:
             tmp = []
@@ -742,22 +801,20 @@ class HttpRequest(HTTPExceptions):
         cookie_jar = ''.join(tmp)
         self.__cookie_jar = cookie_jar
 
-
     def transe_format(self,msg,type=''):
         raise NotImplementedError
 
     def user_privilege(self,user):
-        '''
+        """
         given the result of a user db-query,return it's permission
         :param user: a namedtuple object. keys are ormEngine.User.__dict__
 
         `can_read` `can_write`  `can_upload` `is_admin`
-        '''
+        """
 
         if user and hasattr(user,'privilege'):
             priv = user_level(PRIVILIGE(user.privilege))
             return priv
-
 
     def user_priv_dict(self,user):
         '''
@@ -772,13 +829,11 @@ class HttpRequest(HTTPExceptions):
         tmp['can_upload'] = NONE.can_upload
         return json.dumps(tmp)
 
-
     def is_admin(self,user):
         # if is admin user
         priv = self.user_privilege(user)
         if priv:
             return priv.is_admin
-
 
     def can_write(self,user):
         # if user has write privilege
@@ -786,13 +841,11 @@ class HttpRequest(HTTPExceptions):
         if priv:
             return priv.can_write
 
-
     def can_upload(self,user):
         # if user has upload privilege
         priv = self.user_privilege(user)
         if priv:
             return priv.can_upload
-
 
     def can_read(self,user):
         # read is amost normal user privilege. default 1 for all users.
@@ -809,21 +862,17 @@ class HttpRequest(HTTPExceptions):
             tuples = namedtuple('xx',['name','can_read','can_write','can_upload','is_admin'])
             return tuples._make([name,priv['can_read'],priv['can_write'],priv['can_upload'],priv['is_admin']])
 
-
     def _supercode(self,name):
         statement = """def {}(): return super(cls,self).func(*args,**kwargs)""".format(name)
         code = compile(statement,'statement','exec')
         return code
 
-
     def _exec(self,code):
         exec(code,{},{})
-
 
     def raise_status(self,code,*args, **kwargs):
         # return super(HttpRequest,self)._abort(*args,**kwargs)
         return _abortting(code,*args,**kwargs)
-
 
     @set_header_check
     def set_header(self,k,v):
@@ -837,18 +886,15 @@ class HttpRequest(HTTPExceptions):
             if req:
                 return req.set_headers(dict)
 
-
     def redirect(self,uri,permanent_redirect = False,status=None):
         with self.REQUEST as req:
             if req:
                 return req.redirect(uri,permanent_redirect,status)
 
-
     def render(self,path,**kwargs):
         with self.REQUEST as req:
             if req:
                 return req.render(path,**kwargs)
-
 
     def get_arguments(self, key, default):
         with self.REQUEST as req:
@@ -864,7 +910,6 @@ class HttpRequest(HTTPExceptions):
         with self.REQUEST as req:
             if req:
                 return req._clear_cookie()
-
 
     def set_cookie(self, cookies_dict, max_age=None, expires=None,
                    path=None, domain=None, secure=False, httponly=False,
@@ -883,7 +928,6 @@ class HttpRequest(HTTPExceptions):
             else:
                 raise AttributeError('_file is not exist')
 
-
     def _sform(self):
         with self.REQUEST as req:
             if req and hasattr(req,'_form'):
@@ -891,8 +935,8 @@ class HttpRequest(HTTPExceptions):
             else:
                 raise AttributeError('_form is not exist')
 
-
     def get_json(self,callback=None):
+        # get the json body from the request.
         # set Content-Type: application/json
         # this will handled by this function.
         # return the correct format json or {} instead.
@@ -901,8 +945,6 @@ class HttpRequest(HTTPExceptions):
         with self.REQUEST as req:
             if req:
                 return req._get_json
-
-
 
     def ghost(self,field_iter):
 
@@ -946,11 +988,10 @@ class HttpRequest(HTTPExceptions):
     form = property(_sform,None,None,"Form data is there is a form-type Content-Type.")
     file = property(_sfile, None, None, "File data is there is a form-type Content-Type.")
 
-
     @property
     @contextmanager
     def REQUEST(self):
-        yield getattr(self,REQUEST) if hasattr(self,REQUEST) else None
+        yield getattr(self, REQUEST) if hasattr(self, REQUEST) else None
 
 
 class Bad_Request(HttpRequest):
@@ -959,6 +1000,7 @@ class Bad_Request(HttpRequest):
 
     def post(self):
         return {'400': 'Bad Request'},400
+
 
 class Unauthorized(HttpRequest):
     def get(self):
@@ -998,6 +1040,13 @@ class INTERNAL_SERVER_ERROR(HttpRequest):
 
     def post(self):
         return {'500': 'internal server error'}, 500
+
+
+class RPC_ROUTER_ONLY(HttpRequest):
+    def get(self):
+        return {'400': 'this router for rpc only'}, 400
+    def post(self):
+        return {'400': 'this router for rpc only'}, 400
 
 
 class DangerousRequest(HttpRequest):
@@ -1044,15 +1093,14 @@ class DangerousRequest(HttpRequest):
     def clear_cookie(self):
         raise NotImplementedError
 
-
     def make_warning(self,key):
-        '''
+        """
         warnings if needed.
         if you wanna disable warnnings. add two lines at the code beginning.
 
         >>> import warnings
         >>> warnings.filterwarnings("ignore")
-        '''
+        """
         def callback():
             warnings.warn("[*] get_arguments may invalid while content type is {}".format(self.content_type))
 
@@ -1085,6 +1133,7 @@ class WrapRequest(DangerousRequest):
     DEFAULT_INDEX = PAGE_NOT_FOUNT
     METHOD_NOT_ALLOWED = METHOD_NOT_ALLOWED
     INTERNAL_SERVER_ERROR = INTERNAL_SERVER_ERROR
+    RPC_ROUTER_ONLY = RPC_ROUTER_ONLY
 
     SAFE_LOCKER = threading.RLock()
 
@@ -1107,8 +1156,8 @@ class WrapRequest(DangerousRequest):
         self.keep_alive = self.headers.get('Connection','')
         self.keepalive = 1 if self.keep_alive.lower() == 'keep-alive' else 0
 
-        self.content_type =  self.headers.get('Content-Type',None)
-            # Classification of content-type
+        self.content_type = self.headers.get('Content-Type',None)
+        # Classification of content-type
         if self.content_type:
             self._wrap_content_type(bytes2str(self.content_type))
 
@@ -1126,11 +1175,10 @@ class WrapRequest(DangerousRequest):
         return tmp
 
     def _wrap_content_type(self,content_type):
-        '''
+        """
         we judge the content-type and deal with it with different handler.
         e.g. text, application ,..
-        :return:  None
-        '''
+        """
         if any(content_type.__contains__(x) for x in [PLAIN, HTML]):
             setattr(self,'_get_arguments_enable',1)
 
@@ -1145,13 +1193,13 @@ class WrapRequest(DangerousRequest):
         elif JSON in content_type:
             are_u_json = self.wrap_param()
             try:
-                self.json_content =  json.loads(are_u_json)
+                self.json_content = json.loads(are_u_json)
                 setattr(self, '_get_json_enable', 1)
             except json.decoder.JSONDecodeError:
                 # do not raise json parse error rather than return an
                 # empty dict.
-                self.json_content =  {}
-                Log.info("[*] wrong json format: %s" %str(are_u_json))
+                self.json_content = {}
+                Log.info("[*] wrong json format: %s" % str(are_u_json))
 
         elif XML in content_type:
             # TODO HANDLER XML
@@ -1159,11 +1207,6 @@ class WrapRequest(DangerousRequest):
             setattr(self, '_get_xml_enable', 1)
         else:
             setattr(self, '_get_arguments_enable', 1)
-
-
-    # def __setattr__(self, key, value):
-    #     print(key,value)
-    #     setattr(self, key, value)
 
     def add_cookie_attribute(self,*args,**kwargs):
 
@@ -1175,7 +1218,6 @@ class WrapRequest(DangerousRequest):
             result = fn(*args,**kwargs)
             return (i.strip() for i in result)
         return wrapper
-
 
     def wrap_headers(self,bytes_header):
         # Content-Type: application / x-www-form-urlencoded
@@ -1210,7 +1252,6 @@ class WrapRequest(DangerousRequest):
 
         self._has_wrapper = True
 
-
     def bytes_or_str(self,headers,type):
         tmp = {}
         if type is bytes:
@@ -1234,7 +1275,6 @@ class WrapRequest(DangerousRequest):
             else:
                 break
         return tmp
-
 
     def wrap_param(self):
         '''
@@ -1265,7 +1305,6 @@ class WrapRequest(DangerousRequest):
         else:
             raise MethodNotAllowedException(method=method)
 
-
     @method_check
     def get_first_line(self,callback=None):
         '''
@@ -1292,7 +1331,6 @@ class WrapRequest(DangerousRequest):
     def get_header_attribute(self,attr):
         return self.headers.get(attr,None)
 
-
     def get_arguments(self,key,default):
         '''
         wrapper of property get_argument dict.
@@ -1308,7 +1346,6 @@ class WrapRequest(DangerousRequest):
             return arguments.get(key,default)
         else:
             return default
-
 
     @property
     def args(self):
@@ -1358,7 +1395,6 @@ class WrapRequest(DangerousRequest):
         self._status_code = code
         self.__status__ = 0
 
-
     def set_header(self,k,v):
         # replace if key already exists is not right.
         # http/https response header can have duplicate keys. e.g. Set-Cookie
@@ -1370,7 +1406,6 @@ class WrapRequest(DangerousRequest):
             self.response_header[k] = v
             self.__header__ = 0
 
-
     def set_headers(self,dicts):
         for k, v in dicts.items():
             if k in self.response_header:
@@ -1378,7 +1413,6 @@ class WrapRequest(DangerousRequest):
             else:
                 self.response_header[k] = v
                 self.__header__ = 0
-
 
     def render(self,path,**kwargs):
         '''
@@ -1393,7 +1427,6 @@ class WrapRequest(DangerousRequest):
                 m_m = ModuleEngine(fd.read(),template_dir=template_path,file_path = path)
                 res = m_m.render(kwargs)
                 return res,200
-
 
     def get_cookie(self,key=None,safe_type='session'):
         '''
@@ -1411,7 +1444,6 @@ class WrapRequest(DangerousRequest):
                     '''
                     res =  Session[sess]
                     return Sess2dict(res).parse
-
 
             elif safe_type == 'encrypt':
                 safe_cookie_handler = self.application.settings.get('safe_cookie_handler', None)
@@ -1435,7 +1467,6 @@ class WrapRequest(DangerousRequest):
         else:
             # plain cookie or None cookie header
             return sess
-
 
     def set_cookie(self, cookies_dict, max_age=None, expires=None,
                    path=None, domain=None, secure=False, httponly=False,
@@ -1498,13 +1529,10 @@ class WrapRequest(DangerousRequest):
             tmp = ["{key}={value}; ".format(key=key, value=value)
                    for key, value in cookies_dict.items()]
 
-
         self.add_cookie_attribute(tmp,max_age=max_age, expires=expires,
                    path=path, domain=domain, secure=secure, httponly=httponly)
 
         self._set()
-
-
 
     def _clear_cookie(self):
         '''
@@ -1519,13 +1547,10 @@ class WrapRequest(DangerousRequest):
         self.add_cookie_attribute(tmp)
         self._set()
 
-
-
     def _set(self):
         Vampire = ''.join(['_', self.__class__.__base__.__base__.__name__, '__cookie_jar'])
         if hasattr(self, Vampire):
             self.set_header("Set-Cookie", getattr(self, Vampire))
-
 
     @property
     def session(self):
@@ -1535,7 +1560,6 @@ class WrapRequest(DangerousRequest):
             return sess
         return cookies
 
-
     def user_privilege(self,user):
         '''
         in order to make subclassed compatible with function
@@ -1543,16 +1567,13 @@ class WrapRequest(DangerousRequest):
         '''
         super(WrapRequest,self).user_privilege(user)
 
-
     def current_user(self):
         # exec(self._supercode('func'),{'cls':self.__class__.__name__,'func':'current_user'})
         # a = func()
         return super(WrapRequest,self).current_user
 
-
     def raise_status(self,code,*args,**kwargs):
         return super(WrapRequest, self).raise_status(code)
-
 
 
 class Notify(AsyncHTTPClient):
@@ -1591,8 +1612,10 @@ class Observer():
     def requests(self):
         pass
 
+
 class ClientObserver(Observer):
     RES = []
+
     def requests(self):
         res = self.urlopen(self.ob)    # need call .read to read the content
         self.RES.append(res)
@@ -1607,7 +1630,6 @@ class NAMEDTUPLE(object):
 
     def __call__(self, *args, **kwargs):
         return self.namedtupel(url=self.url,data=self.data,headers=self.headers)
-
 
     def __repr__(self):
         return self.__call__()

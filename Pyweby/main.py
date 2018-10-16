@@ -2,7 +2,7 @@
 
 import time
 import os
-from handle.request import HttpRequest
+from handle.request import HttpRequest, jsonrpc
 from core.router import  Looper
 from core.config import Configs
 from core._concurrent import Executor, asyncpool
@@ -49,6 +49,7 @@ class testRouter2(HttpRequest):
 
 
 class cookie(HttpRequest):
+
     @restful           # use restful before the cache_result !
     @cache_result(expiration=60)
     def post(self):
@@ -107,6 +108,15 @@ class login(HttpRequest):
             self.set_cookie({'name':name,'level':self.user_priv_dict(user)})
             return "%s login ok" %name + self.user_priv_dict(user)
         # user.is_admin()
+
+
+@jsonrpc
+def add(x, y):
+    return x+y
+
+    # @xmlrpc
+    # def sub(self,x,y):
+    #     return x-y
 
 
 class Barrel(Configs.Application):

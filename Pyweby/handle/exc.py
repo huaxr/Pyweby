@@ -95,11 +95,9 @@ class HTTPExceptions(Exception):
 
         return newcls
 
-
     def raiser(self,*args, **kwargs):
 
         raise _HttpException(self.response,self.message) or BaseException(self.response,self.message)
-
 
     __call__ = raiser
 

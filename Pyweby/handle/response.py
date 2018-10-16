@@ -81,6 +81,7 @@ _STATUS_CODES = {
 
 Log = Logger(logger_name=__name__)
 
+
 def _cache_result(**kwargs):
     '''
     wrapper for cache result from the api 's result.
@@ -94,6 +95,7 @@ def _cache_result(**kwargs):
         return savvy
 
     return wrapper
+
 
 def cache_result(**kwargs):
     '''
@@ -242,7 +244,7 @@ class restful(object):
 
 def check_param(fn):
     def wrapper(self,router,method):
-        #TODO, later usage add methods.
+        # TODO, later usage add methods.
         if method not in ['get','post',b'get',b'post']:
             raise ValueError('%s is not allowed method' %method)
         return fn(self,router,method)
@@ -254,7 +256,6 @@ class HttpResponse(object):
 
     def add_future_result(self,*args,**kwargs):
         raise NotImplementedError
-
 
 
 class DangerResponse(HttpResponse):
@@ -508,7 +509,8 @@ class WrapResponse(DangerResponse):
 
     def gen_exception_body(self,code,msg,status_message=None,pretty=True):
         if pretty:
-            yield u'<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">\n'
+            yield u'<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 ' \
+                  u'Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">\n'
             yield u'<html>\n'
             yield u'<body>\n'
         yield u'<title>%(code)s </title>\n' %{'code':code}
@@ -689,3 +691,7 @@ class WrapResponse(DangerResponse):
         return ''.join('<script src="' + x +
                        '" type="text/javascript"></script>'
                        for x in js_files)
+
+
+
+

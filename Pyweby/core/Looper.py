@@ -285,7 +285,8 @@ class PollCycle(MainCycle, Configs.ChooseSelector):
                             by readable list by select loops
                             '''
 
-                            # trigger add_sock to change select.select(pool)'s pool, and change the listening event IO Pool
+                            # trigger add_sock to change select.select(pool)'s pool, and change the listening event
+                            # IO Pool
                             self._impl.add_sock(conn, Configs.R)
                             # define the sock:Queue pair for message
                             self.pair[conn] = Queue.Queue()
