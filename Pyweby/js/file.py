@@ -2,7 +2,7 @@
 from apscheduler.schedulers.blocking import BlockingScheduler
 import subprocess, os, signal, pymongo, pymysql
 
-db = pymysql.connect("10.12.40.235", "sec_crawler", "8o2euPBuBce9", "sec_crawler")
+db = pymysql.connect(）
 cursor = db.cursor()
 
 def handle_file(content):
