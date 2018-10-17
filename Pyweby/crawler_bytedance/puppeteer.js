@@ -16,10 +16,7 @@ var util = require('util');
 //using mysql
 var mysql      = require('mysql');
 var connection = mysql.createConnection({
-  host     : '10.12.40.235',
-  user     : 'sec_crawler',
-  password : '8o2euPBuBce9',
-  database : 'sec_crawler'
+
 });
 connection.connect();
 var  addSql = 'INSERT INTO seebugs(id,title,serial,time,component,cve,type,affect_version,level, up_time) VALUES(0,?,?,?,?,?,?,?,?,?)';
