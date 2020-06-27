@@ -1,13 +1,13 @@
 import select
-from core.Pooler import SelectCycle
+from poll.pooler import SelectCycle
 
 try:
-    from core.Epoller import EpollCycle
+    from poll.epoller import EpollCycle
 except (ImportError, AttributeError):
     EpollCycle = SelectCycle
 
 try:
-    from core.Kpoller import KpollCycle
+    from poll.kpoller import KpollCycle
 except (ImportError, AttributeError):
     KpollCycle = SelectCycle
 
@@ -17,9 +17,7 @@ class Router(object):
     def __new__(cls, *args, **kwargs):
 
         impl = cls.configure()
-        '''
-        To figure out that the impl is callable object
-        '''
+        # impl__call__() is impl(), which is KpollCycle object
         try:
             instance = super(Router, cls).__new__(impl.__call__())
         except TypeError as e:
@@ -33,10 +31,9 @@ class Router(object):
 
         super(self.__class__,self).__init__()
 
-
     @classmethod
-    def ok_value(cls,ins):
-        raise NotImplementedError
+    def ok_value(cls, instance):
+        assert isinstance(instance, (SelectCycle, EpollCycle, KpollCycle,)), 'Error base instance to handler'
 
 
     @classmethod
@@ -101,27 +98,8 @@ class DistributeRouter(Router):
     def _choose(cls):
         return cls._choosen
 
-    def get(self):
-        pass
-
-    def post(self):
-        pass
-
-    def put(self):
-        pass
-
-    def options(self):
-        pass
-
-    def delete(self):
-        pass
-
     def find_router(self):
         raise NotImplementedError
-
-    @classmethod
-    def ok_value(cls,instance):
-        assert isinstance(instance, (SelectCycle, EpollCycle, KpollCycle,)), 'Error base instance to handler'
 
 
 class Looper(DistributeRouter):
@@ -130,11 +108,10 @@ class Looper(DistributeRouter):
         self.enable_manager = enable_manager
         self.template_path = kwargs.get('template_path', '')
         self.static_path = kwargs.get('static_path', '')
-
         super(Looper, self).__init__(*args, **kwargs)
 
     def __call__(self, *args, **kwargs):
-        return self.listen(kwargs.get('port', 8000))
+        raise NotImplementedError
 
     def listen(self,port):
         '''

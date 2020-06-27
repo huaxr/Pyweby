@@ -1,0 +1,5 @@
+colorlog
+six
+pymongo
+pymysql
+cryptography

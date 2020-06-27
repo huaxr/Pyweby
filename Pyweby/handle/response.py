@@ -11,13 +11,13 @@ from collections import OrderedDict
 import traceback as tb
 
 from handle.request import HttpRequest,Unauthorized,MetaRouter
-from handle.exc import (StatusError,MethodNotAllowedException,
+from exceptions.exc import (StatusError,MethodNotAllowedException,
                         EventManagerError,NoHandlingError,JsonPraseError,_HttpException)
 from concurrent.futures import _base
 from util.Engines import EventFuture,Eventer
-from util.logger import Logger,traceback
-from core._concurrent import safe_lock
-from util._compat import EXCEPTION_MSG,SET,HAS
+from log.logger import Logger,traceback
+from core.concurrent import safe_lock
+from compat.compat import EXCEPTION_MSG,SET,HAS
 
 
 _STATUS_CODES = {
@@ -394,39 +394,21 @@ class WrapResponse(DangerResponse):
             SET(ROUTER, 'matcher', _re_res)
 
             if method.upper() in ('GET',b'GET'):
-                '''
-                dispose GET method
-                '''
                 nexter = self.auth_check(ROUTER,'get')
 
             elif method.upper() in ('POST', b'POST'):
-                '''
-                handler POST method
-                '''
                 nexter = self.auth_check(ROUTER, 'post')
 
             elif method.upper() in ('PUT', b'PUT'):
-                '''
-                handler put method
-                '''
                 nexter = self.auth_check(ROUTER, 'put')
 
             elif method.upper() in ('DELETE', b'DELETE'):
-                '''
-                handler delete method
-                '''
                 nexter = self.auth_check(ROUTER, 'delete')
 
             elif method.upper() in ('HEAD', b'HEAD'):
-                '''
-                handler head method
-                '''
                 nexter = self.auth_check(ROUTER, 'HEAD')
 
             elif method.upper() in ('OPTIONS', b'OPTIONS'):
-                '''
-                handler options method
-                '''
                 nexter = self.auth_check(ROUTER, 'OPTIONS')
 
             else:
@@ -440,7 +422,6 @@ class WrapResponse(DangerResponse):
         """
         recognize the router to go, and generator response body and status!
         """
-
         # if self.method is not in the allowed list-methods, that self.method
         # is set `pyweby` , which means an mistakenly usage of http request method
         next(time_consuming_op)
@@ -502,7 +483,6 @@ class WrapResponse(DangerResponse):
         tmp.append(first_line)
         for pair in self.headers.items():
             tmp.append(': '.join(pair))
-
         header = '\r\n'.join(str(s) for s in tmp)
         # print(header)
         return header + "\r\n\r\n"
@@ -682,7 +662,6 @@ class WrapResponse(DangerResponse):
                b'\n'.join(js_embed) + b'\n//]]>\n</script>'
 
     def render_linked_css(self, css_files_list):
-
         return ''.join('<link href="' + x + '" '
                        'type="text/css" rel="stylesheet"/>'
                        for x in css_files_list)

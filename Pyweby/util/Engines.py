@@ -7,8 +7,8 @@ import threading
 from multiprocessing import Queue as MQueue
 from multiprocessing import Process
 from concurrent.futures import ThreadPoolExecutor
-from util.logger import init_loger, traceback
-from util._compat import B_DCRLF
+from log.logger import init_loger, traceback
+from compat.compat import B_DCRLF
 
 try:
     from Queue import Queue, Empty

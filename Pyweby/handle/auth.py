@@ -1,6 +1,6 @@
 import sys
 from collections import namedtuple
-from util._compat import REDUCE as reduce
+from compat.compat import REDUCE as reduce
 
 class AuthHandler(object):
     def __init__(self,cls):
