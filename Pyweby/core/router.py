@@ -1,25 +1,10 @@
-import select
 from poll.pooler import SelectCycle
-
-try:
-    from poll.epoller import EpollCycle
-except (ImportError, AttributeError):
-    EpollCycle = SelectCycle
-
-try:
-    from poll.kpoller import KpollCycle
-except (ImportError, AttributeError):
-    KpollCycle = SelectCycle
-
 
 class Router(object):
 
     def __new__(cls, *args, **kwargs):
-
-        impl = cls.configure()
-        # impl__call__() is impl(), which is KpollCycle object
         try:
-            instance = super(Router, cls).__new__(impl.__call__())
+            instance = super(Router, cls).__new__(SelectCycle)
         except TypeError as e:
             raise e
 
@@ -33,76 +18,10 @@ class Router(object):
 
     @classmethod
     def ok_value(cls, instance):
-        assert isinstance(instance, (SelectCycle, EpollCycle, KpollCycle,)), 'Error base instance to handler'
+        assert isinstance(instance, SelectCycle), 'Error base instance to handler'
 
 
-    @classmethod
-    def configure(cls):
-        '''
-        for safe reason, do not call impl immediate
-        :return: bound method _choose of class `router.Looper`
-        '''
-        base = cls._choose()
-        return base
-
-    @classmethod
-    def _choosen(cls):
-        raise NotImplementedError
-
-    @classmethod
-    def _choose(cls):
-        raise NotImplementedError
-
-    def get_sock(self):
-        raise NotImplementedError
-
-    @staticmethod
-    def checing_return(*args,**kwargs):
-
-        def wrapper(fn):
-
-            return fn(*args,**kwargs)
-
-        return wrapper
-
-
-class DistributeRouter(Router):
-    connection = None
-
-    @classmethod
-    def get_sock(cls):
-        return cls.connection
-
-    @classmethod
-    def set_sock(cls,conn):
-        cls.connection = conn
-        return cls
-
-    @classmethod
-    def _choosen(cls):
-        if hasattr(select, 'epoll'):
-            from core.Epoller import EpollCycle
-            return EpollCycle
-        if hasattr(select, "kqueue"):
-            # on BSD or Mac OS X
-            return KpollCycle
-
-        if hasattr(select,'select'):
-            return SelectCycle
-
-        else:
-            raise NotImplementedError
-
-
-    @classmethod
-    def _choose(cls):
-        return cls._choosen
-
-    def find_router(self):
-        raise NotImplementedError
-
-
-class Looper(DistributeRouter):
+class Looper(Router):
     def __init__(self, handlers=None, enable_manager=False, *args, **kwargs):
         self.handlers = handlers
         self.enable_manager = enable_manager

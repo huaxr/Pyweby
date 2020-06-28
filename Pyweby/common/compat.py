@@ -89,4 +89,5 @@ B_DCRLF = b"\r\n\r\n"
 AND = '&'
 EQUALS = '='
 SEMICOLON = ';'
+SLASH = "/"
 

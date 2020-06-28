@@ -31,23 +31,6 @@ class Executor(ThreadPoolExecutor):
         return cls._instance
 
 
-class Executorp(ProcessPoolExecutor):
-    '''
-    __all__ = (ThreadPoolExecutor,)
-
-    def __getattr__(name):
-        if name == 'ThreadPoolExecutor':
-            from .thread import ThreadPoolExecutor as te
-            ThreadPoolExecutor = te
-            return te
-    '''
-    _instance_ = None
-
-    def __new__(cls, *args, **kwargs):
-        if not getattr(cls,'_instance', None):
-            cls._instance = ProcessPoolExecutor(max_workers=10)
-        return cls._instance
-
 def asyncpool(*args, **kwargs):
 
     '''

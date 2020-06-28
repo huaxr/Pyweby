@@ -2,25 +2,12 @@ import select
 
 import itertools
 import socket
-import sys
-import time
-
-from .looper import PollCycle
+from poll.looper import PollCycle
 from common.logger import Logger,traceback
-from .check import BarrelCheck
-from config.config import Configs
+from poll.check import BarrelCheck
+from common.config import Configs
 
 Log = Logger(logger_name=__name__)
-SLASH = '/'
-
-def loading(t):
-    for _ in range(t):
-        for i in ["[ - ]","[ \ ]","[ | ]","[ / ]"]:
-            sys.stdout.write("\r" + "%s Server launching..." %i )
-            time.sleep(0.2)
-            sys.stdout.flush()
-        sys.stdout.write('\r')
-    sys.stdout.write('\r')
 
 class _select(object):
     def __init__(self):
@@ -85,53 +72,24 @@ class _select(object):
             if i.fileno() < 0:
                 self.remove_sock(i)
 
+
 class SelectCycle(PollCycle, BarrelCheck):
     def __init__(self,*args, **kwargs):
-        self.application = None
         flag, obj = self.if_define_barrel(args,kwargs)
         if flag and obj:
             self.wrapper_barrel(obj,kwargs)
             # after wrapper_barrel called, self is bind application instance
             # which is the class user defined inherit from Application
         self.check_application(kwargs)
-
-        kwargs.update({'__impl':_select()})
+        kwargs.update({'__impl':self.get_selector()()})
         # self has application attribute, which is the definition of the Application
         # now super calling .
         super(SelectCycle, self).__init__(*args, **kwargs)
 
-    def trigger_handlers(self,kw):
-        '''
-        this method for layout the handlers user define in the main.py.
-        if user pass an object inherit Application, that means
-        self has been set application parameter, which is the Application
-        user defines, has many useful attribute for later calling.
-        :param kw:  passed form the super class, has been wrapped
-        :return: the handlers property. defined in main.py which is subclass
-            of HttpRequest and added into the handlers key-value pair
-        '''
-        app = self.application
-        if app:
-            handlers = []
-            tmp =  app.handlers
-            for i,j in tmp:
-                if i.startswith(SLASH):
-                    pass
-                else:
-                    i = SLASH + i
-                handlers.append((i,j))
-
-            prefix = app.settings.get('uri_prefix',None)
-
-            if prefix:
-                if prefix.startswith(SLASH):
-                    pass
-                else:
-                    prefix = SLASH + prefix
-                mapper = map(lambda i: (prefix + i[0], i[1]), handlers)
-                if isinstance(mapper,map):
-                    return list(mapper)
-                return mapper
-            return handlers
-        return kw.get('handlers',[])
-
+    def get_selector(self):
+        if hasattr(select, 'epoll'):
+            return select.epoll
+        elif hasattr(select, "kqueue"):
+            return select.kqueue
+        elif hasattr(select,'select'):
+            return _select

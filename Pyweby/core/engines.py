@@ -38,16 +38,6 @@ class Switcher(object):
         # active event handling thread
         self._thread.start()
 
-
-class _Process(Process):
-    def __init__(self, target=None):
-        Process.__init__(self)
-        self.target = target
-
-    def run(self):
-        self.target()
-
-
 class _EventManager(Switcher):
     def __init__(self, q):
         self._eventQ = Queue()

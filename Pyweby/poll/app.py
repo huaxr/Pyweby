@@ -1,5 +1,5 @@
 #coding: utf-8
-from config.config import Global
+from common.config import Global
 
 class Application(object):
     def __init__(self, handlers=None, settings=None):

@@ -218,29 +218,6 @@ class CacheContainer(object):
                 break
 
 
-class restful(object):
-    def __init__(self,fn):
-        self.fn = fn
-
-    def __get__(self, instance, cls=None):
-
-        if instance is None:
-            return self
-        result = self.fn(instance)
-        # assert isinstance(result,(list,tuple)) and len(result) == 2
-        tmp = {}
-        if isinstance(result, (list, tuple)) and len(result) == 2:
-            tmp['res'] = result[0]
-            tmp['status'] = result[1]
-        else:
-            tmp['res'] = result
-            tmp['status'] = 200
-        try:
-            json.dumps(tmp)
-        except Exception:
-            raise JsonPraseError('Error format')
-        return tmp
-
 
 def check_param(fn):
     def wrapper(self,router,method):

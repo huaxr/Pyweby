@@ -10,8 +10,8 @@ from poll.sock.read import blocking_recv
 import socket
 import select
 from common.compat import intern, PY2
-from config.config import Configs
-from config.dic import MagicDict
+from common.config import Configs
+from common.dict import MagicDict
 from poll.manager import Manager
 try:
     import queue as Queue

@@ -1,8 +1,25 @@
 #coding: utf-8
-from common.exception import MethodNotAllowedException
-from config.config import Configs
+from common.exception import MethodNotAllowedException, JsonPraseError
+from common.config import Configs
 from common.compat import _None
+import json
+from common.exception import InspectorError
+from common.compat import STRING
 
+def set_header_check(fn):
+    def wrapper(*args):
+        if not (len(args)==3 and any(isinstance(i,STRING) for i in [args[1:]])):
+            raise InspectorError(msg="Arguments check error.", type='arguments')
+        return fn(*args)
+    return wrapper
+
+def set_headers_check(fn):
+    def wrapper(*args):
+        if len(args)==2 and isinstance(args[1], dict):
+            return fn(*args)
+        else:
+            raise InspectorError(type='arguments')
+    return wrapper
 
 def thread_state(fn):
     def wrapper(self):
@@ -86,3 +103,26 @@ class _property(property):
             value = self.func(instance)
             instance.__dict__[self.__name__] = value
         return value
+
+class restful(object):
+    def __init__(self,fn):
+        self.fn = fn
+
+    def __get__(self, instance, cls=None):
+
+        if instance is None:
+            return self
+        result = self.fn(instance)
+        # assert isinstance(result,(list,tuple)) and len(result) == 2
+        tmp = {}
+        if isinstance(result, (list, tuple)) and len(result) == 2:
+            tmp['res'] = result[0]
+            tmp['status'] = result[1]
+        else:
+            tmp['res'] = result
+            tmp['status'] = 200
+        try:
+            json.dumps(tmp)
+        except Exception:
+            raise JsonPraseError('Error format')
+        return tmp

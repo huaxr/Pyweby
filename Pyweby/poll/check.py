@@ -4,7 +4,6 @@ from .app import Application
 from cryptography.fernet import Fernet as Cipher
 from common.exception import NoRouterHandlers, FormatterError
 from handle.request import HttpRequest
-import select
 
 class BarrelCheck(object):
 

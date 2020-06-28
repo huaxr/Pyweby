@@ -1,7 +1,7 @@
 #coding: utf-8
 import ssl
 import sys
-from .dic import Globals
+from common.dict import Globals
 
 
 class Configs(object):

@@ -60,3 +60,20 @@ class Globals(dict):
 
     def __repr__(self):
         return "Globals with context env"
+
+
+class MGdict(dict):
+    def __getattr__(self, attr):
+        try:
+            return self[attr]
+        except KeyError:
+            raise AttributeError(attr)
+
+    def __setattr__(self, attr, value):
+        self[attr] = value
+
+    def __iadd__(self, rhs):
+        self.update(rhs); return self
+
+    def __add__(self, rhs):
+        d = MGdict(self); d.update(rhs); return d

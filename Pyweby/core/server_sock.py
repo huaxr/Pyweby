@@ -3,7 +3,7 @@ import ssl
 import socket
 from common.logger import Logger
 from common.compat import HOSTNAME
-from config.config import Configs
+from common.config import Configs
 try:
     from os import uname
 except Exception:

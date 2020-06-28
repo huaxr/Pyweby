@@ -6,12 +6,27 @@ from handle.request import HttpRequest
 
 from core.router import  Looper
 from core.concurrent import Executor, asyncpool
-from handle.response import restful, cache_result
+from handle.response import  cache_result
+from common.wrapper import restful
 from handle.auth import login_require
 from common.compat import COUNT
-from util.orm_engine import User
-from config.config import Configs
+from common.config import Configs
 from poll.app import Application
+from core.orm_engine import IntegerField, StringField, Model
+
+class User(Model):
+    id = IntegerField("id", auto_increment=True)
+    user = StringField("user", not_null=True, default="null")
+    passwd = StringField("passwd", not_null=True, default="null")
+    privilege = StringField("privilege", not_null=True, default="R")
+    information = StringField("information", not_null=True, default="R")
+    # TODO not ok set here
+    PRIMARYKEY = 'id'
+
+
+class sessions(Model):
+    session = StringField("session", not_null=True)
+    value = StringField("value", not_null=True)
 
 
 class testRouter(HttpRequest):
@@ -147,7 +162,7 @@ class Barrel(Application):
 if __name__ == '__main__':
     loop = Looper()
     server = loop(Barrel) or loop(handlers=[(r'/hello', testRouter2), ], enable_manager=1)
-    server.listen(8737)
+    server.listen(8738)
     server.server_forever(debug=False)
 
 

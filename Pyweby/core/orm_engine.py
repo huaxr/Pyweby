@@ -8,32 +8,10 @@ from common.compat import URLPARSE
 from common.logger import traceback, init_loger
 from collections import namedtuple
 from common.exception import ORMError
-from config.config import Global
-
-__all__ = ('User')
+from common.config import Global
+from common.dict import MGdict
 
 Log = init_loger(__name__)
-
-
-# import warnings
-# warnings.filterwarnings("ignore")
-
-class MGdict(dict):
-    def __getattr__(self, attr):
-        try:
-            return self[attr]
-        except KeyError:
-            raise AttributeError(attr)
-
-    def __setattr__(self, attr, value):
-        self[attr] = value
-
-    def __iadd__(self, rhs):
-        self.update(rhs); return self
-
-    def __add__(self, rhs):
-        d = MGdict(self); d.update(rhs); return d
-
 
 class DBEngine(object):
     def __init__(self, db_uri=None):
@@ -391,17 +369,3 @@ class Model(dict):
     def allow_fileds(cls):
         return cls.__mappings__.keys()
 
-
-class User(Model):
-    id = IntegerField("id", auto_increment=True)
-    user = StringField("user", not_null=True, default="null")
-    passwd = StringField("passwd", not_null=True, default="null")
-    privilege = StringField("privilege", not_null=True, default="R")
-    information = StringField("information", not_null=True, default="R")
-    # TODO not ok set here
-    PRIMARYKEY = 'id'
-
-
-class sessions(Model):
-    session = StringField("session", not_null=True)
-    value = StringField("value", not_null=True)

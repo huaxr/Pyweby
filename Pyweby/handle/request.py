@@ -5,11 +5,8 @@ import re
 import os
 import threading
 import warnings
-import struct
 import six
 import hashlib
-
-from abc import ABCMeta, abstractmethod
 from collections import namedtuple
 from handle.auth import Session,PRIVILIGE,user_level
 from datetime import datetime,timedelta
@@ -17,11 +14,10 @@ from common.logger import init_loger,traceback
 from common.exception import MethodNotAllowedException,ApplicationError,HTTPExceptions,Abort
 from contextlib import contextmanager
 from common.compat import bytes2str,CRLF,DCRLF,B_CRLF,\
-    B_DCRLF,AND,EQUALS,SEMICOLON,STRING,_None,bytes2defaultcoding,UNQUOTE,intern,HTTPCLIENT
+    B_DCRLF,AND,EQUALS,STRING,UNQUOTE,intern
 
-from util.orm_engine import sessions
-from util.inspecter import set_header_check,set_headers_check ,observer_check
-from config.config import Configs
+from common.wrapper import set_header_check,set_headers_check
+from common.config import Configs
 from common.wrapper import method_check, _property
 from handle.template import TemplateEngine as ModuleEngine
 from handle.session import Sess2dict
@@ -36,7 +32,6 @@ NORMAL_FORM, FILE_FORM = intern('x-www-form-urlencoded'),intern('multipart/form-
 PLAIN, HTML = intern('text/plain'), intern('text/html')
 XML = intern('text/xml')
 REQUEST = intern('request')
-
 
 class MetaRouter(type):
     """
@@ -897,13 +892,14 @@ class WrapRequest(DangerousRequest):
             Session[digest] = s
             tmp = ["_session=" + digest + '; ']
 
-            if permanent:
-                '''
-                for this moment. we keep the session digest in the DB for permanent.
-                TODO : enhance orm to support update.
-                '''
-                with sessions(session=digest,value=s) as ses:
-                    ses.save()
+            # 持久化实现
+            # if permanent:
+            #     '''
+            #     for this moment. we keep the session digest in the DB for permanent.
+            #     TODO : enhance orm to support update.
+            #     '''
+            #     with sessions(session=digest,value=s) as ses:
+            #         ses.save()
 
         elif safe_type == 'encrypt':
             '''
