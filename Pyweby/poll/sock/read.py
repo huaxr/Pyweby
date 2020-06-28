@@ -1,7 +1,7 @@
 #coding: utf-8
 import socket
-from compat.compat import B_DCRLF
-from log.logger import init_loger, traceback
+from common.compat import B_DCRLF
+from common.logger import init_loger, traceback
 
 Log = init_loger(__name__)
 

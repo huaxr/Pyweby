@@ -1,14 +1,13 @@
 import abc
 import json
-import pymongo
 import six
 import pymysql
 import contextlib
 
-from compat.compat import URLPARSE
-from log.logger import traceback, init_loger
+from common.compat import URLPARSE
+from common.logger import traceback, init_loger
 from collections import namedtuple
-from exceptions.exc import ORMError
+from common.exception import ORMError
 from config.config import Global
 
 __all__ = ('User')
@@ -39,8 +38,6 @@ class MGdict(dict):
 class DBEngine(object):
     def __init__(self, db_uri=None):
         '''
-        >>> a = URLPARSE("mysql://127.0.0.1:3306/test?user=root&passwd=root")
-        >>> print(a)
         ParseResult(scheme='mysql', netloc='127.0.0.1:3306', path='/test_db', params='',query='user=root&pass=root', fragment='')
         '''
         self.db_uri = db_uri
@@ -70,12 +67,9 @@ class DBEngine(object):
 
         if scheme == 'mysql':
             conn = pymysql.connect(host, user, passwd, DB)
-            # cursor = conn.cursor()
             self.conn = conn
         elif scheme == 'mongodb':
-            conn = pymongo.connection(host, port)
-            db = conn[DB]
-            self.conn = db
+            self.conn = None
         elif scheme == 'redis':
             self.conn = None
 

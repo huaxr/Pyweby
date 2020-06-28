@@ -1,8 +1,8 @@
 #coding:utf-8
 import ssl
 import socket
-from log.logger import Logger
-from compat.compat import HOSTNAME
+from common.logger import Logger
+from common.compat import HOSTNAME
 from config.config import Configs
 try:
     from os import uname

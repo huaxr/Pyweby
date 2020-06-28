@@ -2,13 +2,13 @@
 
 import time
 import os
-from handle.request import HttpRequest, jsonrpc
+from handle.request import HttpRequest
 
 from core.router import  Looper
 from core.concurrent import Executor, asyncpool
 from handle.response import restful, cache_result
 from handle.auth import login_require
-from compat.compat import COUNT
+from common.compat import COUNT
 from util.orm_engine import User
 from config.config import Configs
 from poll.app import Application

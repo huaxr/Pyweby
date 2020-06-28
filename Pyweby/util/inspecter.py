@@ -1,5 +1,5 @@
-from exceptions.exc import InspectorError
-from compat.compat import STRING
+from common.exception import InspectorError
+from common.compat import STRING
 
 def set_header_check(fn):
     def wrapper(*args):

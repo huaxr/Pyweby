@@ -6,7 +6,7 @@ import sys
 import time
 
 from .looper import PollCycle
-from log.logger import Logger,traceback
+from common.logger import Logger,traceback
 from .check import BarrelCheck
 from config.config import Configs
 

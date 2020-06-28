@@ -2,6 +2,9 @@
 import itertools
 from .app import Application
 from cryptography.fernet import Fernet as Cipher
+from common.exception import NoRouterHandlers, FormatterError
+from handle.request import HttpRequest
+import select
 
 class BarrelCheck(object):
 
@@ -33,25 +36,13 @@ class BarrelCheck(object):
                 raise ValueError('safe_cookie must be set in Application\'s setting')
             self.application.settings['safe_cookie_handler'] = Cipher(safe_cookie)
 
-
-class ChooseSelector(object):
-
-    def __init__(self, flag=False):
-        self.flag = flag
-
-    def server_forever(self, debug=False):
-        if self.flag == "EPOLL":
-            self.server_forever_epoll(debug=debug)
-        elif self.flag == "KQUEUE":
-            self.server_forever_kqueue(debug=debug)
-        else:
-            self.server_forever_select(debug=debug)
-
-    def server_forever_epoll(self, **kw):
-        raise NotImplementedError
-
-    def server_forever_select(self, **kw):
-        raise NotImplementedError
-
-    def server_forever_kqueue(self, **kwargs):
-        raise NotImplementedError
+    @classmethod
+    def check_handlers(cls, handlers):
+        if len(handlers) <= 0:
+            raise NoRouterHandlers
+        for uri, obj in handlers:
+            assert callable(obj)
+            if isinstance(uri, (str, bytes)) and issubclass(obj, HttpRequest):
+                continue
+            else:
+                raise FormatterError(uri=uri, obj=obj)

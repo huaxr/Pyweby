@@ -1,14 +1,11 @@
 # encoding: UTF-8
-import socket
 import types
 import re
 import select
 import threading
-from multiprocessing import Queue as MQueue
 from multiprocessing import Process
 from concurrent.futures import ThreadPoolExecutor
-from log.logger import init_loger, traceback
-from compat.compat import B_DCRLF
+from common.logger import init_loger, traceback
 
 try:
     from Queue import Queue, Empty
@@ -17,77 +14,8 @@ except ImportError:
 
 Log = init_loger(__name__)
 
-__all__ = ('EventManager', 'Event', 'EventFuture', 'BaseEngine')
+__all__ = ('EventManager', 'Event', 'EventFuture')
 
-
-class BaseEngine(object):
-    WHATEVER = 0
-    _template_cache = {}
-    re_variable = re.compile(r'\{\{ .*? \}\}')
-    re_comment = re.compile(r'\{# .*? #\}')
-    re_tag = re.compile(r'\{% .*? %\}')
-
-    re_extends = re.compile(r'\{% extends (?P<name>.*?) %\}')
-    re_blocks = re.compile(
-        r'\{% block (?P<name>\w+) %\}'
-        r'(?P<code>.*?)'
-        r'\{% endblock \1 %\}', re.DOTALL)
-    re_block_super = re.compile(r'\{\{ block\.super \}\}')
-    re_tokens = re.compile(r'((?:\{\{ .*? }\})|(?:\{\# .*? \#\}|(?:\{% .*? %\})))', re.X)
-
-    def __init__(self, raw_html):
-        self.raw_html = raw_html
-
-    def _parse(self):
-
-        self._handle_extends()
-        tokens = self.re_tokens.split(self.raw_html)
-        # ['<h1>', '{% if score >= 80 %}', ' A\n   ', '{% elif score >= 60 %}',
-        # ' B\n   ', '{% else %}', ' C\n   ', '{% endif %}', '</h1>']
-
-        handlers = (
-            (self.re_variable.match, self._handle_variable),  # {{ variable }}
-            (self.re_tag.match, self._handle_tag),  # {% tag %}
-            (self.re_comment.match, self._handle_comment),  # {# comment #}
-        )
-        default_handler = self._handle_string  # normal string
-
-        for token in tokens:
-            for match, handler in handlers:
-                if match(token):
-                    handler(token)
-                    break
-            else:
-                default_handler(token)
-
-    def _handle_variable(self, token):
-        """variable handler"""
-        raise NotImplementedError
-
-    def _handle_comment(self, token):
-        """annotation handler"""
-        raise NotImplementedError
-
-    def _handle_string(self, token):
-        """string handler"""
-        raise NotImplementedError
-
-    def _handle_tag(self, tag):
-        raise NotImplementedError
-
-    def _handle_extends(self):
-        raise NotImplementedError
-
-    def safe_exec(self, co, kw):
-        assert isinstance(co, types.CodeType)
-        '''
-        every user control value should be sterilize/disinfect here.
-        '''
-        # for i in kw.values():
-        #     if '__import__' in i:
-        #         # raise DangerTemplateError('malicious code found.')
-        #         return self.WHATEVER
-        exec(co, kw)
 
 
 class Switcher(object):
@@ -167,14 +95,12 @@ class EventManager(Switcher):
         self._thread = threading.Thread(target=self._run_events)
         self.__EPOLL = hasattr(select, 'epoll')
         self.__KQUEUE = hasattr(select, 'kqueue')
-
         '''
         The __handlers here is a dict() that stores the 
         corresponding response functions of events.
         Each of these keys corresponds to a list of one-to-many 
         response functions that hold listeners for the event
         '''
-
         self._handlers = {}
         super(EventManager, self).__init__(self._active, self._thread)
 
@@ -354,7 +280,6 @@ class EventFuture(Eventer):
     and than calling EventManager.addFuture or addEvent to
     register the type of events
     '''
-
     def __init__(self, future=None, _sock=None, _PollCycle=None, headers=None):
         self.future = future
         self.sock = _sock

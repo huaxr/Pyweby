@@ -5,7 +5,7 @@ import platform
 import os
 import sys
 
-from exceptions.exc import NoPackageFound
+from common.exception import NoPackageFound
 LOGGER = None
 
 
